@@ -1,0 +1,17 @@
+{
+  "name": "agentic-sdlc",
+  "description": "Spec-driven, checkpoint-gated build loop for driving large multi-session AI software builds: thin persistent context, evidence-bearing handoffs, resume-ready history. Orchestrates the superpowers skills; ships /sprint, /checkpoint, /handoff, /bootstrap-asdlc.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Leadwood Solutions",
+    "email": ""
+  },
+  "keywords": [
+    "agentic-sdlc",
+    "workflow",
+    "handoff",
+    "context-engineering",
+    "sprint",
+    "checkpoint"
+  ]
+}
