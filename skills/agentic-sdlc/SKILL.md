@@ -21,6 +21,10 @@ Two rules make it work:
    handoff (after) → commit → STOP for approval → `/clear`. One unit of work per checkpoint.
 
 ## The loop (per sprint)
+0. **If starting from an existing tracked issue that's architectural, old, or hasn't
+   been touched since filed** → `/verify-issue [id]` first. Adversarially checks the
+   issue's claims against the current codebase before it becomes a plan, so the plan
+   isn't built against a stale premise. Skip for small, self-evidently-current fixes.
 1. **Plan first** → `docs/superpowers/plans/`. REQUIRED SUB-SKILL: superpowers:brainstorming, then superpowers:writing-plans.
 2. **Build test-first.** REQUIRED SUB-SKILL: superpowers:test-driven-development.
 3. **Verify with real evidence** (commands run, live output, test counts — not assertions). REQUIRED SUB-SKILL: superpowers:verification-before-completion.
@@ -30,6 +34,10 @@ Two rules make it work:
 
 ## Commands
 - `/bootstrap-asdlc` — scaffold this workflow into a new repo.
+- `/verify-issue [id]` — adversarially check a tracked issue against the current
+  codebase before it becomes a plan (research → draft → independent fact-check →
+  correct → push with the tracker's own sequencing conventions). See
+  `references/issue-verification-methodology.md`.
 - `/sprint [name]` — start a sprint: scaffold its plan, kick off brainstorm→plan.
 - `/checkpoint` — non-blocking gate: tests + handoff-exists + STATUS reminder, then stage.
 - `/handoff` — generate the handoff doc from the template.
