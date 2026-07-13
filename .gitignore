@@ -1,0 +1,18 @@
+# Secrets — never commit real values; use .env.example templates instead.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.pfx
+*.p12
+id_rsa
+id_ed25519
+credentials.json
+service-account*.json
+secrets/
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+*.code-workspace
