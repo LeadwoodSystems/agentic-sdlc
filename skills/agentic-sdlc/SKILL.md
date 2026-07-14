@@ -30,7 +30,7 @@ Two rules make it work:
 3. **Verify with real evidence** (commands run, live output, test counts — not assertions). REQUIRED SUB-SKILL: superpowers:verification-before-completion.
 4. **Adversarial review for risky/security work** — fan out reviewers by dimension, verify/refute each finding, fix the real ones. REQUIRED SUB-SKILL: superpowers:requesting-code-review.
 5. **Handoff** → an evidence-bearing `docs/handoffs/<sprint>.md` so a fresh session resumes exactly here (`/handoff`).
-6. **Checkpoint** (`/checkpoint`) → run tests, confirm the handoff exists, update `docs/STATUS.md`, stage the commit. Then **STOP for approval** and **`/clear`** before the next sprint.
+6. **Checkpoint** (`/checkpoint`) → run targeted tests (changed files + dependents, capped at ~3 min — not the full suite), confirm the handoff exists, update `docs/STATUS.md`, stage the commit. Then **STOP for approval** and **`/clear`** before the next sprint.
 
 ## Commands
 - `/bootstrap-asdlc` — scaffold this workflow into a new repo.
@@ -39,7 +39,7 @@ Two rules make it work:
   correct → push with the tracker's own sequencing conventions). See
   `references/issue-verification-methodology.md`.
 - `/sprint [name]` — start a sprint: scaffold its plan, kick off brainstorm→plan.
-- `/checkpoint` — non-blocking gate: tests + handoff-exists + STATUS reminder, then stage.
+- `/checkpoint` — non-blocking gate: targeted tests (<=3min) + handoff-exists + STATUS reminder, then stage.
 - `/handoff` — generate the handoff doc from the template.
 
 ## State model (single source of truth)

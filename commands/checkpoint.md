@@ -1,5 +1,5 @@
 ---
-description: ASDLC sprint checkpoint — run tests, confirm handoff exists, update STATUS, stage (non-blocking)
+description: ASDLC sprint checkpoint — run targeted tests (<=3min), confirm handoff exists, update STATUS, stage (non-blocking)
 argument-hint: [sprint-id]
 ---
 
@@ -10,10 +10,14 @@ proceed. Preserve the human-approval checkpoint.
 Sprint: **$ARGUMENTS** (if empty, infer from the plan/handoff you have been working on).
 
 Run these checks and report a pass/fail summary:
-1. **Tests** — find the project's test command in `CLAUDE.md` (§ Run / verify) and run the
-   appropriate tier (inner-loop/impact selection for iteration; the FULL suite for a real
-   checkpoint). Report the actual result (counts, failures) — evidence, not assertions.
-   REQUIRED SUB-SKILL: superpowers:verification-before-completion.
+1. **Tests** — find the project's test command in `CLAUDE.md` (§ Run / verify) and run
+   **targeted tests only**: the files/modules touched this sprint plus their direct
+   dependents (use the project's impact-selection/filter flag — e.g. `--changed`,
+   `-run`, path-scoped args). Do **not** run the full suite here; that cost belongs in CI,
+   not the per-sprint gate. If targeted selection isn't possible for this project and the
+   full suite must run, time-box it — if it won't finish in ~3 minutes, stop it, say so,
+   and report the tests that did complete. Report the actual result (counts, failures) —
+   evidence, not assertions. REQUIRED SUB-SKILL: superpowers:verification-before-completion.
 2. **Handoff exists** — check `docs/handoffs/` for a file matching this sprint. If missing,
    say so and offer to run `/handoff`. The handoff is the one step never to skip.
 3. **STATUS updated** — check that `docs/STATUS.md` (or the project's history file) has a
