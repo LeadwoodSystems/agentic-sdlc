@@ -7,6 +7,27 @@ function slugFromFilename(filename) {
   return filename.replace(/\.md$/, '').replace(/^v[\d.]+-s\d+-/, '');
 }
 
+const PLAN_VERSION_RE = /^v(\d+)\.(\d+)-s(\d+)-/;
+
+// Numeric-aware comparator for plan filenames named vMAJOR.MINOR-sN-<slug>.md.
+// Filenames that don't match the canonical pattern sort before all that do
+// (treated as oldest) instead of throwing.
+function compareByVersion(a, b) {
+  const matchA = a.match(PLAN_VERSION_RE);
+  const matchB = b.match(PLAN_VERSION_RE);
+
+  if (!matchA && !matchB) return a.localeCompare(b);
+  if (!matchA) return -1;
+  if (!matchB) return 1;
+
+  for (let i = 1; i <= 3; i += 1) {
+    const numA = Number(matchA[i]);
+    const numB = Number(matchB[i]);
+    if (numA !== numB) return numA - numB;
+  }
+  return 0;
+}
+
 function checkGate(cwd, { runner = run } = {}) {
   const plansDir = path.join(cwd, 'docs/superpowers/plans');
   const handoffsDir = path.join(cwd, 'docs/handoffs');
@@ -14,7 +35,7 @@ function checkGate(cwd, { runner = run } = {}) {
   if (fs.existsSync(plansDir)) {
     const plans = fs.readdirSync(plansDir)
       .filter((f) => f.endsWith('.md') && f !== '_TEMPLATE.md')
-      .sort();
+      .sort(compareByVersion);
     if (plans.length > 0) {
       const newestPlan = plans[plans.length - 1];
       const slug = slugFromFilename(newestPlan);
@@ -28,9 +49,13 @@ function checkGate(cwd, { runner = run } = {}) {
     }
   }
 
-  const branches = runner('git', ['branch', '--list', 'sprint/*'], { cwd })
+  const branches = runner(
+    'git',
+    ['for-each-ref', 'refs/heads/sprint/*', '--format=%(refname:short)'],
+    { cwd },
+  )
     .split('\n')
-    .map((l) => l.replace(/^\*?\s*/, '').trim())
+    .map((l) => l.trim())
     .filter(Boolean);
 
   for (const branch of branches) {
