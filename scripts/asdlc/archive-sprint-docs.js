@@ -12,7 +12,7 @@ function assertSafePathSegment(value, label) {
   }
 }
 
-function archiveOneDir(dir, milestoneVersion) {
+function archiveOneDir(cwd, dir, milestoneVersion) {
   if (!fs.existsSync(dir)) return [];
   const archiveDir = path.join(dir, 'archive', milestoneVersion);
   const moved = [];
@@ -28,7 +28,8 @@ function archiveOneDir(dir, milestoneVersion) {
     const from = path.join(dir, entry.name);
     const to = path.join(archiveDir, entry.name);
     fs.renameSync(from, to);
-    moved.push(to);
+    // Convert to relative path before pushing to moved array
+    moved.push(path.relative(cwd, to));
   }
   return moved;
 }
@@ -37,8 +38,8 @@ function archiveMilestone(cwd, milestoneVersion) {
   // Validate milestoneVersion before any fs operations
   assertSafePathSegment(milestoneVersion, 'milestoneVersion');
 
-  const handoffsMoved = archiveOneDir(path.join(cwd, 'docs/handoffs'), milestoneVersion);
-  const plansMoved = archiveOneDir(path.join(cwd, 'docs/superpowers/plans'), milestoneVersion);
+  const handoffsMoved = archiveOneDir(cwd, path.join(cwd, 'docs/handoffs'), milestoneVersion);
+  const plansMoved = archiveOneDir(cwd, path.join(cwd, 'docs/superpowers/plans'), milestoneVersion);
   return { moved: [...handoffsMoved, ...plansMoved] };
 }
 

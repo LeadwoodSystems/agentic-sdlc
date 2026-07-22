@@ -19,6 +19,13 @@ test('archiveMilestone moves only the targeted milestone files', async () => {
     const { moved } = archiveMilestone(dir, 'v0.9');
 
     assert.equal(moved.length, 2);
+    // Assert that returned paths are relative to cwd, not absolute
+    assert.ok(moved.includes(path.join('docs', 'handoffs', 'archive', 'v0.9', 'v0.9-s1-a.md')));
+    assert.ok(moved.includes(path.join('docs', 'superpowers', 'plans', 'archive', 'v0.9', 'v0.9-s1-a.md')));
+    // Assert no paths are absolute (would start with temp dir or drive letter on Windows)
+    moved.forEach((p) => {
+      assert.ok(!path.isAbsolute(p), `Path should be relative, not absolute: ${p}`);
+    });
     assert.ok(fs.existsSync(path.join(handoffsDir, 'archive/v0.9/v0.9-s1-a.md')));
     assert.ok(fs.existsSync(path.join(plansDir, 'archive/v0.9/v0.9-s1-a.md')));
     assert.ok(!fs.existsSync(path.join(handoffsDir, 'v0.9-s1-a.md')));
@@ -130,6 +137,13 @@ test('archiveMilestone handles mixed milestone files correctly', async () => {
     const { moved } = archiveMilestone(dir, 'v0.9');
 
     assert.equal(moved.length, 2);
+    // Assert that returned paths are relative to cwd
+    assert.ok(moved.includes(path.join('docs', 'handoffs', 'archive', 'v0.9', 'v0.9-file1.md')));
+    assert.ok(moved.includes(path.join('docs', 'handoffs', 'archive', 'v0.9', 'v0.9-file2.md')));
+    // Assert no paths are absolute
+    moved.forEach((p) => {
+      assert.ok(!path.isAbsolute(p), `Path should be relative, not absolute: ${p}`);
+    });
     assert.ok(fs.existsSync(path.join(handoffsDir, 'archive/v0.9/v0.9-file1.md')));
     assert.ok(fs.existsSync(path.join(handoffsDir, 'archive/v0.9/v0.9-file2.md')));
     assert.ok(!fs.existsSync(path.join(handoffsDir, 'v0.9-file1.md')));
@@ -152,6 +166,12 @@ test('archiveMilestone accepts valid alphanumeric milestoneVersions', async () =
     const { moved } = archiveMilestone(dir, 'v1.2.3');
 
     assert.equal(moved.length, 1);
+    // Assert that returned path is relative to cwd
+    assert.ok(moved.includes(path.join('docs', 'handoffs', 'archive', 'v1.2.3', 'v1.2.3-file.md')));
+    // Assert no paths are absolute
+    moved.forEach((p) => {
+      assert.ok(!path.isAbsolute(p), `Path should be relative, not absolute: ${p}`);
+    });
     assert.ok(fs.existsSync(path.join(handoffsDir, 'archive/v1.2.3/v1.2.3-file.md')));
   } finally {
     cleanup();
