@@ -1,6 +1,6 @@
 const { run } = require('./lib/exec');
 
-function findStaleBranches(cwd, { runner = run } = {}) {
+function findStaleBranches(cwd, { trunk = 'main', runner = run } = {}) {
   // Use git for-each-ref instead of git branch --list to avoid the `+` marker
   // (which marks branches checked out in other worktrees) and the `*` marker
   // (which marks the current branch). for-each-ref with --format=%(refname:short)
@@ -15,7 +15,7 @@ function findStaleBranches(cwd, { runner = run } = {}) {
     .filter(Boolean);
 
   return branches.filter((branch) => {
-    const unmerged = runner('git', ['log', `main..${branch}`, '--oneline'], { cwd });
+    const unmerged = runner('git', ['log', `${trunk}..${branch}`, '--oneline'], { cwd });
     return unmerged.length === 0;
   });
 }
@@ -111,7 +111,7 @@ function safeCheck(fn) {
 
 function runHygieneAudit(cwd, { declaredTrunk, currentSprintVersion, runner = run } = {}) {
   return {
-    staleBranches: safeCheck(() => findStaleBranches(cwd, { runner })),
+    staleBranches: safeCheck(() => findStaleBranches(cwd, { trunk: declaredTrunk, runner })),
     defaultBranch: safeCheck(() => checkDefaultBranch(cwd, declaredTrunk, { runner })),
     untriagedIssues: safeCheck(() => findUntriagedIssues(cwd, { runner })),
     milestoneSync: safeCheck(() => checkMilestoneVersionSync(cwd, currentSprintVersion, { runner })),

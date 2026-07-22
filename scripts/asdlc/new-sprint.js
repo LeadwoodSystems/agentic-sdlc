@@ -28,7 +28,7 @@ function compareByVersion(a, b) {
   return 0;
 }
 
-function checkGate(cwd, { runner = run } = {}) {
+function checkGate(cwd, { trunk = 'main', runner = run } = {}) {
   const plansDir = path.join(cwd, 'docs/superpowers/plans');
   const handoffsDir = path.join(cwd, 'docs/handoffs');
 
@@ -59,7 +59,7 @@ function checkGate(cwd, { runner = run } = {}) {
     .filter(Boolean);
 
   for (const branch of branches) {
-    const unmerged = runner('git', ['log', `main..${branch}`, '--oneline'], { cwd });
+    const unmerged = runner('git', ['log', `${trunk}..${branch}`, '--oneline'], { cwd });
     if (unmerged.length > 0) {
       return { blocked: true, reason: 'unmerged-branch' };
     }
@@ -118,16 +118,32 @@ function createSprint(cwd, sprintId, slug, { runner = run } = {}) {
 function main() {
   const args = process.argv.slice(2);
   const force = args.includes('--force');
-  const positional = args.filter((a) => a !== '--force');
+
+  // --trunk <name>: the branch new sprint branches are compared against for
+  // the unmerged-branch gate check. Defaults to 'main' for repos that use the
+  // conventional trunk name; pass --trunk <name> for repos (e.g. one whose
+  // trunk is `build/v0.1`) where that default doesn't hold.
+  let trunk = 'main';
+  const trunkIdx = args.indexOf('--trunk');
+  if (trunkIdx !== -1) {
+    trunk = args[trunkIdx + 1];
+    if (!trunk) {
+      console.error('Usage: node new-sprint.js <sprint-id> <slug> [--force] [--trunk <name>]');
+      process.exit(1);
+    }
+  }
+
+  const trunkValueIdx = trunkIdx === -1 ? -1 : trunkIdx + 1;
+  const positional = args.filter((a, i) => a !== '--force' && a !== '--trunk' && i !== trunkValueIdx);
   const [sprintId, slug] = positional;
 
   if (!sprintId || !slug) {
-    console.error('Usage: node new-sprint.js <sprint-id> <slug> [--force]');
+    console.error('Usage: node new-sprint.js <sprint-id> <slug> [--force] [--trunk <name>]');
     process.exit(1);
   }
 
   const cwd = process.cwd();
-  const gate = checkGate(cwd);
+  const gate = checkGate(cwd, { trunk });
   if (gate.blocked && !force) {
     console.error(`Blocked: ${gate.reason}. Resolve it, or re-run with --force to override.`);
     process.exit(1);

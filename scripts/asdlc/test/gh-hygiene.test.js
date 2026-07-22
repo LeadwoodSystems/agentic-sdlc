@@ -27,6 +27,30 @@ test('findStaleBranches finds merged sprint branches', async () => {
   }
 });
 
+test('findStaleBranches respects a non-default trunk', async () => {
+  const { dir, cleanup } = await makeFixtureRepo();
+  try {
+    // Rename the fixture repo's default branch (created as `main`) to
+    // `develop`, so `main` doesn't exist in this repo at all.
+    run('git', ['branch', '-m', 'main', 'develop'], { cwd: dir });
+    run('git', ['branch', 'sprint/v0.1-s1'], { cwd: dir }); // merged: no new commits vs develop
+    run('git', ['checkout', '-b', 'sprint/v0.1-s2'], { cwd: dir });
+    require('node:fs').writeFileSync(require('node:path').join(dir, 'x.txt'), 'x');
+    run('git', ['add', '.'], { cwd: dir });
+    run('git', ['commit', '-m', 'wip'], { cwd: dir }); // not merged vs develop
+    run('git', ['checkout', 'develop'], { cwd: dir });
+
+    const stale = findStaleBranches(dir, { trunk: 'develop' });
+    assert.deepEqual(stale, ['sprint/v0.1-s1']);
+
+    // Passing no trunk falls back to the 'main' default, which doesn't exist
+    // in this repo — must fail loudly rather than silently misreport.
+    assert.throws(() => findStaleBranches(dir));
+  } finally {
+    cleanup();
+  }
+});
+
 test('checkDefaultBranch compares origin/HEAD to the declared trunk (stubbed)', async () => {
   const { dir, cleanup } = await makeFixtureRepo();
   try {
@@ -162,6 +186,41 @@ test('runHygieneAudit isolates a failing gh-based check so git-based results sti
     assert.match(report.untriagedIssues.error, /authentication required/);
     assert.equal(typeof report.milestoneSync.error, 'string');
     assert.match(report.milestoneSync.error, /authentication required/);
+  } finally {
+    cleanup();
+  }
+});
+
+test('runHygieneAudit threads declaredTrunk into findStaleBranches, not a hardcoded main', async () => {
+  const { dir, cleanup } = await makeFixtureRepo();
+  try {
+    const calls = [];
+    const stubRunner = (cmd, args) => {
+      calls.push(args.join(' '));
+      const joined = args.join(' ');
+      if (joined.includes('symbolic-ref')) return 'refs/remotes/origin/build/v0.1';
+      if (joined.includes('for-each-ref')) return 'sprint/v0.1-s1';
+      if (joined.includes('log')) return ''; // treat as merged relative to whatever ref was asked for
+      if (joined.includes('issue list')) return '[]';
+      if (joined.includes('milestones')) return 'v0.12\n';
+      return '';
+    };
+    const report = runHygieneAudit(dir, {
+      declaredTrunk: 'build/v0.1',
+      currentSprintVersion: 'v0.12',
+      runner: stubRunner,
+    });
+
+    assert.deepEqual(report.staleBranches, ['sprint/v0.1-s1']);
+    assert.deepEqual(report.defaultBranch, { ok: true, actual: 'build/v0.1' });
+    assert.ok(
+      calls.some((c) => c.startsWith('log build/v0.1..sprint/v0.1-s1')),
+      `expected the stale-branch check to compare against declaredTrunk (build/v0.1), got calls: ${JSON.stringify(calls)}`,
+    );
+    assert.ok(
+      !calls.some((c) => c.startsWith('log main..')),
+      'declaredTrunk should be used instead of a hardcoded main',
+    );
   } finally {
     cleanup();
   }

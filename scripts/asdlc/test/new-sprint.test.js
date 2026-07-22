@@ -61,6 +61,34 @@ test('checkGate passes when a sprint branch exists but has no commits ahead of m
   }
 });
 
+test('checkGate respects a non-default trunk when checking for unmerged branches', async () => {
+  const { dir, cleanup } = await makeFixtureRepo();
+  try {
+    // Rename the fixture repo's default branch (created as `main`) to
+    // `develop`, simulating a repo whose trunk isn't named `main` at all —
+    // the exact scenario (gaw's `build/v0.1` trunk) that motivated this fix.
+    run('git', ['branch', '-m', 'main', 'develop'], { cwd: dir });
+    run('git', ['checkout', '-b', 'sprint/v0.1-s1'], { cwd: dir });
+    fs.writeFileSync(path.join(dir, 'work.txt'), 'wip\n');
+    run('git', ['add', '.'], { cwd: dir });
+    run('git', ['commit', '-m', 'wip'], { cwd: dir });
+    run('git', ['checkout', 'develop'], { cwd: dir });
+    run('git', ['merge', 'sprint/v0.1-s1'], { cwd: dir });
+
+    // With the correct trunk passed, the sprint branch is genuinely merged
+    // into `develop` and the gate must pass.
+    const result = checkGate(dir, { trunk: 'develop' });
+    assert.deepEqual(result, { blocked: false, reason: null });
+
+    // With no trunk specified, checkGate falls back to the 'main' default —
+    // which doesn't exist in this repo at all, so `git log main..branch`
+    // fails outright rather than silently misreporting.
+    assert.throws(() => checkGate(dir));
+  } finally {
+    cleanup();
+  }
+});
+
 test('checkGate uses the injected runner instead of the real run()', async () => {
   const { dir, cleanup } = await makeFixtureRepo();
   try {
