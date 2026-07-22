@@ -83,6 +83,26 @@ test('deleteBranch falls back to force delete on squash-merge scenario', async (
   }
 });
 
+test('deleteBranch re-throws the original error when -d fails for an unrelated reason', async () => {
+  const { dir, cleanup } = await makeFixtureRepo();
+  try {
+    // Attempt to delete a branch that never existed. `git branch -d` fails
+    // with "branch 'x' not found", which is NOT a "not fully merged" failure,
+    // so deleteBranch must re-throw the original error rather than silently
+    // attempting -D (which would produce a different, more confusing error).
+    assert.throws(
+      () => deleteBranch(dir, 'does-not-exist'),
+      (err) => {
+        assert.match(err.message, /not found/i);
+        assert.doesNotMatch(err.message, /not fully merged/i);
+        return true;
+      },
+    );
+  } finally {
+    cleanup();
+  }
+});
+
 test('deleteBranch deletes remote branch if it exists', async () => {
   const { dir, cleanup } = await makeFixtureRepo();
   try {
@@ -147,6 +167,30 @@ test('deleteBranch does not delete remote if it does not exist', async () => {
     assert.ok(
       !calls.some((c) => c.args.includes('push') && c.args.includes('--delete')),
       'should NOT call git push --delete when remote does not exist',
+    );
+  } finally {
+    cleanup();
+  }
+});
+
+test('deleteBranch propagates a genuine push --delete failure instead of swallowing it', async () => {
+  const { dir, cleanup } = await makeFixtureRepo();
+  try {
+    const testRunner = (cmd, args) => {
+      if (args[0] === 'branch') return '';
+      if (args[0] === 'ls-remote') {
+        // Remote branch exists, so deleteBranch will attempt to push --delete
+        return 'abc1234\trefs/heads/sprint/v0.1-s1';
+      }
+      if (args[0] === 'push') {
+        throw new Error('push origin --delete sprint/v0.1-s1 failed: remote: protected branch hook declined');
+      }
+      return '';
+    };
+
+    assert.throws(
+      () => deleteBranch(dir, 'sprint/v0.1-s1', { runner: testRunner }),
+      /protected branch hook declined/,
     );
   } finally {
     cleanup();

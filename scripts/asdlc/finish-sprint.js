@@ -40,29 +40,40 @@ function markMerged(cwd, sprintId, sha) {
  * (force delete) is appropriate and safe: the only risk with force delete is losing
  * unmerged work, but we have the precondition that the work IS merged.
  *
- * Strategy: try `git branch -d` first (safe delete). If it fails (e.g., due to
- * squash-merge), fall back to `git branch -D` (force delete).
+ * Strategy: try `git branch -d` first (safe delete). If it fails specifically
+ * because git reports the branch as "not fully merged" (the squash-merge case),
+ * fall back to `git branch -D` (force delete). Any other failure (branch not
+ * found, branch checked out elsewhere, etc.) is re-thrown as-is so the original
+ * diagnostic message isn't discarded.
  */
 function deleteBranch(cwd, branchName, { runner = run } = {}) {
   // Try safe delete first
   try {
     runner('git', ['branch', '-d', branchName], { cwd });
   } catch (err) {
-    // If safe delete fails, try force delete
-    // This handles the squash-merge case where ancestry isn't recognized
+    // Only fall back to force delete for the known squash-merge case, where
+    // git can't verify ancestry because the branch's commits were squashed
+    // into a new commit on main. Any other failure reason should propagate.
+    if (!/not fully merged/i.test(err.message)) {
+      throw err;
+    }
     runner('git', ['branch', '-D', branchName], { cwd });
   }
 
-  // Check if remote branch exists and delete it
-  // If there's no remote or the branch doesn't exist remotely, this will fail silently
+  // Check if a remote branch exists. If there's no `origin` remote at all
+  // (e.g. local-only testing scenarios), that's fine to swallow since there's
+  // nothing to delete.
+  let remote = '';
   try {
-    const remote = runner('git', ['ls-remote', '--heads', 'origin', branchName], { cwd });
-    if (remote.length > 0) {
-      runner('git', ['push', 'origin', '--delete', branchName], { cwd });
-    }
+    remote = runner('git', ['ls-remote', '--heads', 'origin', branchName], { cwd });
   } catch (err) {
-    // No remote exists or branch isn't on remote; silently continue
-    // This is expected in local-only testing scenarios
+    return;
+  }
+
+  // A genuine failure here (auth failure, branch protection, network issue)
+  // is an actionable error and must propagate to the caller, not be swallowed.
+  if (remote.length > 0) {
+    runner('git', ['push', 'origin', '--delete', branchName], { cwd });
   }
 }
 
