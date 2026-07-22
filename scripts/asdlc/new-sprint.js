@@ -68,4 +68,55 @@ function checkGate(cwd, { runner = run } = {}) {
   return { blocked: false, reason: null };
 }
 
-module.exports = { checkGate };
+function createSprint(cwd, sprintId, slug, { runner = run } = {}) {
+  runner('git', ['checkout', '-b', `sprint/${sprintId}`], { cwd });
+
+  const plansDir = path.join(cwd, 'docs/superpowers/plans');
+  fs.mkdirSync(plansDir, { recursive: true });
+
+  const templatePath = path.join(plansDir, '_TEMPLATE.md');
+  const relPlanPath = path.join('docs/superpowers/plans', `${sprintId}-${slug}.md`);
+  const absPlanPath = path.join(cwd, relPlanPath);
+
+  let content;
+  if (fs.existsSync(templatePath)) {
+    content = fs.readFileSync(templatePath, 'utf8')
+      .replace(/<Sprint id> — <Name>/g, `${sprintId} — ${slug}`);
+  } else {
+    content = `# ${sprintId} — ${slug} · Plan\n\n## Context (why)\n<fill in>\n`;
+  }
+  fs.writeFileSync(absPlanPath, content);
+
+  return { branch: `sprint/${sprintId}`, planPath: relPlanPath };
+}
+
+function main() {
+  const args = process.argv.slice(2);
+  const force = args.includes('--force');
+  const positional = args.filter((a) => a !== '--force');
+  const [sprintId, slug] = positional;
+
+  if (!sprintId || !slug) {
+    console.error('Usage: node new-sprint.js <sprint-id> <slug> [--force]');
+    process.exit(1);
+  }
+
+  const cwd = process.cwd();
+  const gate = checkGate(cwd);
+  if (gate.blocked && !force) {
+    console.error(`Blocked: ${gate.reason}. Resolve it, or re-run with --force to override.`);
+    process.exit(1);
+  }
+  if (gate.blocked && force) {
+    console.warn(`WARNING: overriding gate (${gate.reason}) via --force.`);
+  }
+
+  const { branch, planPath } = createSprint(cwd, sprintId, slug);
+  console.log(`Created branch ${branch} and plan ${planPath}`);
+}
+
+module.exports = { checkGate, createSprint };
+
+if (require.main === module) {
+  main();
+}

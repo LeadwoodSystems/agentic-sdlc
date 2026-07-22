@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { run } = require('../lib/exec');
 const { makeFixtureRepo } = require('./helpers/fixture-repo');
-const { checkGate } = require('../new-sprint');
+const { checkGate, createSprint } = require('../new-sprint');
 
 test('checkGate passes on a clean repo with no plans/handoffs', async () => {
   const { dir, cleanup } = await makeFixtureRepo();
@@ -108,6 +108,64 @@ test('checkGate treats double-digit sprint numbers as newer than single-digit on
 
     const result2 = checkGate(dir);
     assert.deepEqual(result2, { blocked: false, reason: null });
+  } finally {
+    cleanup();
+  }
+});
+
+test('createSprint creates a branch and seeds a plan file', async () => {
+  const { dir, cleanup } = await makeFixtureRepo();
+  try {
+    const { branch, planPath } = createSprint(dir, 'v0.1-s1', 'my-feature');
+    assert.equal(branch, 'sprint/v0.1-s1');
+    assert.ok(fs.existsSync(path.join(dir, planPath)));
+
+    const current = run('git', ['branch', '--show-current'], { cwd: dir });
+    assert.equal(current, 'sprint/v0.1-s1');
+
+    const content = fs.readFileSync(path.join(dir, planPath), 'utf8');
+    assert.match(content, /v0\.1-s1/);
+  } finally {
+    cleanup();
+  }
+});
+
+test('createSprint seeds from _TEMPLATE.md when present', async () => {
+  const { dir, cleanup } = await makeFixtureRepo();
+  try {
+    fs.mkdirSync(path.join(dir, 'docs/superpowers/plans'), { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, 'docs/superpowers/plans/_TEMPLATE.md'),
+      '# <Sprint id> — <Name> · Plan\n\n## Context (why)\n<fill in>\n'
+    );
+    run('git', ['add', '.'], { cwd: dir });
+    run('git', ['commit', '-m', 'add template'], { cwd: dir });
+
+    const { planPath } = createSprint(dir, 'v0.1-s1', 'my-feature');
+    const content = fs.readFileSync(path.join(dir, planPath), 'utf8');
+    assert.match(content, /v0\.1-s1 — my-feature/);
+    assert.doesNotMatch(content, /<Sprint id>/);
+  } finally {
+    cleanup();
+  }
+});
+
+test('createSprint uses injected runner', async () => {
+  const { dir, cleanup } = await makeFixtureRepo();
+  try {
+    const calls = [];
+    const stubRunner = (cmd, args, opts) => {
+      calls.push({ cmd, args });
+      if (args[0] === 'checkout') return '';
+      return '';
+    };
+
+    createSprint(dir, 'v0.1-s1', 'test', { runner: stubRunner });
+
+    assert.ok(
+      calls.some((c) => c.args[0] === 'checkout' && c.args[1] === '-b'),
+      'expected git checkout -b to be called via the injected runner',
+    );
   } finally {
     cleanup();
   }
