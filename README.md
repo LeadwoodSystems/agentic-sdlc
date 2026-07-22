@@ -60,8 +60,9 @@ Exactly one source of truth for "where things are": the newest handoff. Don't ha
 the same status into `CLAUDE.md`, memory, and a handoff — that drifts.
 
 Plans and handoffs share one naming scheme: `vMAJOR.MINOR-sN-<slug>.md`. When a milestone
-closes, run `node scripts/asdlc/archive-sprint-docs.js <milestone>` to move its files into
-`archive/<milestone>/` so the live directories stay small.
+closes, run `node scripts/asdlc/archive-sprint-docs.js <milestone>` to move each type's files
+into its own `archive/<milestone>/` subdirectory (`docs/handoffs/archive/<milestone>/`,
+`docs/superpowers/plans/archive/<milestone>/`) so the live directories stay small.
 
 ## Works for solo devs and small teams — it's just GitHub
 
