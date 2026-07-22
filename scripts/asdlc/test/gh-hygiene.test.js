@@ -35,12 +35,26 @@ test('checkDefaultBranch compares origin/HEAD to the declared trunk (stubbed)', 
 test('checkDefaultBranch handles missing origin/HEAD gracefully', async () => {
   const { dir, cleanup } = await makeFixtureRepo();
   try {
-    // fixture repo has no remote, so git symbolic-ref will fail
-    // The function should handle this gracefully, not throw
+    // fixture repo has no remote, so git symbolic-ref will fail with:
+    //   fatal: ref refs/remotes/origin/HEAD is not a symbolic ref
+    // The function should handle this specific failure gracefully, not throw.
     const result = checkDefaultBranch(dir, 'main');
-    assert.strictEqual(typeof result.actual, 'string');
-    assert.strictEqual(typeof result.ok, 'boolean');
-    // When origin/HEAD doesn't exist, actual should indicate this somehow
+    assert.deepEqual(result, { ok: false, actual: '<unknown>' });
+  } finally {
+    cleanup();
+  }
+});
+
+test('checkDefaultBranch re-throws unrelated git failures instead of swallowing them', async () => {
+  const { dir, cleanup } = await makeFixtureRepo();
+  try {
+    const stubRunner = () => {
+      throw new Error('git symbolic-ref refs/remotes/origin/HEAD failed: fatal: not a git repository (or any of the parent directories): .git');
+    };
+    assert.throws(
+      () => checkDefaultBranch(dir, 'main', { runner: stubRunner }),
+      /not a git repository/,
+    );
   } finally {
     cleanup();
   }
