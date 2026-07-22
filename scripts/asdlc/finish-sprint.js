@@ -95,14 +95,18 @@ function checkMilestone(cwd, issueNumbers, { runner = run } = {}) {
       const parsed = JSON.parse(out);
       return { issue, milestone: parsed.milestone ? parsed.milestone.title : null };
     } catch (err) {
-      return { issue, error: err.message };
+      return { issue, milestone: null, error: err.message };
     }
   });
 }
 
 /**
- * main()
+ * main(argv = process.argv.slice(2), { runner = run } = {})
  * CLI entry point: node finish-sprint.js <sprint-id> <sha> [issue-numbers...]
+ *
+ * Accepts its arguments explicitly (rather than reading process.argv directly)
+ * and an injectable `runner`, so it can be invoked directly from tests against
+ * a fixture repo with a stubbed runner.
  *
  * Steps:
  * 1. Validate args (sprint-id, sha required)
@@ -116,8 +120,8 @@ function checkMilestone(cwd, issueNumbers, { runner = run } = {}) {
  * Any per-issue milestone-check errors are logged as warnings but don't exit
  * with non-zero status.
  */
-function main() {
-  const [sprintId, sha, ...issueArgs] = process.argv.slice(2);
+function main(argv = process.argv.slice(2), { runner = run } = {}) {
+  const [sprintId, sha, ...issueArgs] = argv;
   if (!sprintId || !sha) {
     console.error('Usage: node finish-sprint.js <sprint-id> <sha> [issue-numbers...]');
     process.exit(1);
@@ -127,12 +131,12 @@ function main() {
   markMerged(cwd, sprintId, sha);
   console.log(`Marked ${sprintId} as merged (${sha}) in docs/STATUS.md.`);
 
-  deleteBranch(cwd, `sprint/${sprintId}`);
+  deleteBranch(cwd, `sprint/${sprintId}`, { runner });
   console.log(`Deleted branch sprint/${sprintId} (local + remote if present).`);
 
   const issueNumbers = issueArgs.map(Number).filter((n) => !Number.isNaN(n));
   if (issueNumbers.length > 0) {
-    const results = checkMilestone(cwd, issueNumbers);
+    const results = checkMilestone(cwd, issueNumbers, { runner });
     for (const result of results) {
       if (result.error) {
         console.warn(`Warning: Could not check milestone for issue #${result.issue}: ${result.error}`);
@@ -143,7 +147,7 @@ function main() {
   }
 }
 
-module.exports = { markMerged, deleteBranch, checkMilestone };
+module.exports = { markMerged, deleteBranch, checkMilestone, main };
 
 if (require.main === module) {
   main();

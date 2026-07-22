@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { run } = require('../lib/exec');
 const { makeFixtureRepo } = require('./helpers/fixture-repo');
-const { markMerged, deleteBranch, checkMilestone } = require('../finish-sprint');
+const { markMerged, deleteBranch, checkMilestone, main } = require('../finish-sprint');
 
 test('markMerged flips only the matching line', async () => {
   const { dir, cleanup } = await makeFixtureRepo();
@@ -257,7 +257,9 @@ test('checkMilestone handles per-issue errors gracefully, returning error marker
     // Issue 42 succeeds, 99 fails, 43 succeeds
     assert.equal(result.length, 3);
     assert.deepEqual(result[0], { issue: 42, milestone: 'v0.9' });
-    assert.ok(result[1].error); // Issue 99 has an error marker
+    // Full shape check: milestone must always be present (null on error), per
+    // the documented { issue, milestone: string|null, error?: string } contract.
+    assert.deepEqual(result[1], { issue: 99, milestone: null, error: 'issue not found' });
     assert.deepEqual(result[2], { issue: 43, milestone: null });
   } finally {
     cleanup();
@@ -266,6 +268,9 @@ test('checkMilestone handles per-issue errors gracefully, returning error marker
 
 test('main() orchestrates markMerged, deleteBranch, and checkMilestone successfully', async () => {
   const { dir, cleanup } = await makeFixtureRepo();
+  const originalCwd = process.cwd();
+  const originalWarn = console.warn;
+  const originalLog = console.log;
   try {
     // Set up STATUS.md
     const statusPath = path.join(dir, 'docs/STATUS.md');
@@ -276,21 +281,17 @@ test('main() orchestrates markMerged, deleteBranch, and checkMilestone successfu
     run('git', ['branch', 'sprint/v0.1-s1'], { cwd: dir });
 
     // Capture console output
-    const originalWarn = console.warn;
-    const originalLog = console.log;
     const logs = [];
     const warns = [];
     console.log = (...args) => logs.push(args.join(' '));
     console.warn = (...args) => warns.push(args.join(' '));
 
-    // Mock the gh runner
-    const ghCalls = [];
+    // Stub runner: delegate real git ops to the fixture repo, stub gh calls
     const testRunner = (cmd, args, opts) => {
       if (cmd === 'git') {
         return run(cmd, args, opts);
       }
       if (cmd === 'gh') {
-        ghCalls.push(args.join(' '));
         const issueArg = args[args.indexOf('view') + 1];
         if (issueArg === '42') {
           return JSON.stringify({ milestone: { title: 'v0.9' } });
@@ -300,36 +301,36 @@ test('main() orchestrates markMerged, deleteBranch, and checkMilestone successfu
       return '';
     };
 
-    // Override require.main for testing by directly calling the implementation
-    // We can't easily mock process.argv, so we'll test the component functions instead
-    // But let's verify the logic by testing each step
-    const { markMerged: mm, deleteBranch: db, checkMilestone: cm } = require('../finish-sprint');
-    mm(dir, 'v0.1-s1', 'abc1234');
-    db(dir, 'sprint/v0.1-s1');
-    const results = cm(dir, [42, 43], { runner: testRunner });
+    process.chdir(dir);
+    main(['v0.1-s1', 'abc1234', '42', '43'], { runner: testRunner });
 
-    // Verify markMerged worked
+    // Verify markMerged was actually invoked by main()
     const statusContent = fs.readFileSync(statusPath, 'utf8');
     assert.match(statusContent, /status: merged \(abc1234\)/);
 
-    // Verify deleteBranch worked
+    // Verify deleteBranch was actually invoked by main()
     const branches = run('git', ['branch', '--list', 'sprint/*'], { cwd: dir });
     assert.equal(branches, '');
 
-    // Verify checkMilestone worked
-    assert.equal(results.length, 2);
-    assert.deepEqual(results[0], { issue: 42, milestone: 'v0.9' });
-    assert.deepEqual(results[1], { issue: 43, milestone: null });
-
+    // Verify checkMilestone results were processed: issue 43 has no milestone
+    assert.ok(
+      warns.some((w) => w.includes('Issue #43 has no milestone assigned')),
+      `expected a no-milestone warning for issue 43, got: ${JSON.stringify(warns)}`,
+    );
+    // Issue 42 has a milestone, so it should NOT produce a warning
+    assert.ok(!warns.some((w) => w.includes('#42')));
+  } finally {
+    process.chdir(originalCwd);
     console.log = originalLog;
     console.warn = originalWarn;
-  } finally {
     cleanup();
   }
 });
 
 test('main() with milestone check errors does not crash (graceful error handling)', async () => {
   const { dir, cleanup } = await makeFixtureRepo();
+  const originalCwd = process.cwd();
+  const originalWarn = console.warn;
   try {
     const statusPath = path.join(dir, 'docs/STATUS.md');
     fs.mkdirSync(path.dirname(statusPath), { recursive: true });
@@ -337,7 +338,10 @@ test('main() with milestone check errors does not crash (graceful error handling
 
     run('git', ['branch', 'sprint/v0.1-s1'], { cwd: dir });
 
-    // Mock gh runner that fails on one issue but succeeds on another
+    const warns = [];
+    console.warn = (...args) => warns.push(args.join(' '));
+
+    // Mock gh runner that throws for one issue but succeeds for the others
     const testRunner = (cmd, args, opts) => {
       if (cmd === 'git') {
         return run(cmd, args, opts);
@@ -352,28 +356,26 @@ test('main() with milestone check errors does not crash (graceful error handling
       return '';
     };
 
-    // Simulate what main() does with error handling
-    const { markMerged: mm, deleteBranch: db, checkMilestone: cm } = require('../finish-sprint');
-    mm(dir, 'v0.1-s1', 'abc1234');
-    db(dir, 'sprint/v0.1-s1');
+    process.chdir(dir);
+    // The key test: main() should NOT throw even though gh fails for issue 99
+    assert.doesNotThrow(() => {
+      main(['v0.1-s1', 'abc1234', '42', '99', '43'], { runner: testRunner });
+    });
 
-    // The key test: checkMilestone should NOT throw even though gh fails for issue 99
-    const results = cm(dir, [42, 99, 43], { runner: testRunner });
+    // Core work still completed despite the milestone-check failure
+    const statusContent = fs.readFileSync(statusPath, 'utf8');
+    assert.match(statusContent, /status: merged \(abc1234\)/);
+    const branches = run('git', ['branch', '--list', 'sprint/*'], { cwd: dir });
+    assert.equal(branches, '');
 
-    // Verify we got all 3 results and the middle one has an error
-    assert.equal(results.length, 3);
-    assert.ok(results[0].milestone === null || results[0].milestone); // Success
-    assert.ok(results[1].error); // This one has error marker
-    assert.ok(results[2].milestone === null || results[2].milestone); // Success
-
-    // The main() function would process these results and warn but not crash
-    for (const result of results) {
-      if (result.error) {
-        // This is what main() does: log warning but continue
-        console.warn(`Warning: Could not check milestone for issue #${result.issue}: ${result.error}`);
-      }
-    }
+    // main() warned about issue 99's failure specifically
+    assert.ok(
+      warns.some((w) => w.includes('Could not check milestone for issue #99') && w.includes('Not Found: HTTP 404')),
+      `expected a milestone-check-failure warning for issue 99, got: ${JSON.stringify(warns)}`,
+    );
   } finally {
+    process.chdir(originalCwd);
+    console.warn = originalWarn;
     cleanup();
   }
 });
