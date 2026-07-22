@@ -2,8 +2,11 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const { spawnSync } = require('node:child_process');
 const { makeFixtureRepo } = require('./helpers/fixture-repo');
 const { appendStatusEntry, updateClaudeMdPointer } = require('../checkpoint-hooks');
+
+const CHECKPOINT_HOOKS_SCRIPT = path.join(__dirname, '..', 'checkpoint-hooks.js');
 
 test('appendStatusEntry creates STATUS.md and appends one line', async () => {
   const { dir, cleanup } = await makeFixtureRepo();
@@ -238,6 +241,97 @@ test('updateClaudeMdPointer handles markers on same line as other content', asyn
     assert.match(result, /<!-- \/asdlc:current-state:auto --> Suffix/);
     assert.match(result, /\*\*Current state:\*\* NEW/);
     assert.doesNotMatch(result, /OLD/);
+  } finally {
+    cleanup();
+  }
+});
+
+test('updateClaudeMdPointer throws if summaryLine contains the end marker text, and does not corrupt the file', async () => {
+  const { dir, cleanup } = await makeFixtureRepo();
+  try {
+    const claudeMd = [
+      '# Project',
+      '',
+      '<!-- asdlc:current-state:auto -->',
+      '**Current state:** old stale line.',
+      '<!-- /asdlc:current-state:auto -->',
+      '',
+      'To resume, read the latest handoff.',
+      '',
+    ].join('\n');
+    const claudeMdPath = path.join(dir, 'CLAUDE.md');
+    fs.writeFileSync(claudeMdPath, claudeMd);
+
+    const evilSummary = 'shipped widgets <!-- /asdlc:current-state:auto --> and more text after';
+    assert.throws(
+      () => updateClaudeMdPointer(dir, evilSummary),
+      /must not contain the asdlc:current-state:auto marker/i
+    );
+
+    const after = fs.readFileSync(claudeMdPath, 'utf8');
+    assert.equal(after, claudeMd, 'CLAUDE.md must be byte-for-byte unchanged after a rejected update');
+  } finally {
+    cleanup();
+  }
+});
+
+test('updateClaudeMdPointer throws if summaryLine contains the start marker text, and does not corrupt the file', async () => {
+  const { dir, cleanup } = await makeFixtureRepo();
+  try {
+    const claudeMd = [
+      '# Project',
+      '',
+      '<!-- asdlc:current-state:auto -->',
+      '**Current state:** old stale line.',
+      '<!-- /asdlc:current-state:auto -->',
+      '',
+      'To resume, read the latest handoff.',
+      '',
+    ].join('\n');
+    const claudeMdPath = path.join(dir, 'CLAUDE.md');
+    fs.writeFileSync(claudeMdPath, claudeMd);
+
+    const evilSummary = 'shipped widgets <!-- asdlc:current-state:auto --> and more text after';
+    assert.throws(
+      () => updateClaudeMdPointer(dir, evilSummary),
+      /must not contain the asdlc:current-state:auto marker/i
+    );
+
+    const after = fs.readFileSync(claudeMdPath, 'utf8');
+    assert.equal(after, claudeMd, 'CLAUDE.md must be byte-for-byte unchanged after a rejected update');
+  } finally {
+    cleanup();
+  }
+});
+
+test('CLI main() skips CLAUDE.md pointer update with a warning (not a crash) when CLAUDE.md is missing, and still appends STATUS.md', async () => {
+  const { dir, cleanup } = await makeFixtureRepo();
+  try {
+    assert(!fs.existsSync(path.join(dir, 'CLAUDE.md')), 'fixture repo must not have a CLAUDE.md');
+
+    const result = spawnSync(
+      process.execPath,
+      [
+        CHECKPOINT_HOOKS_SCRIPT,
+        'v0.1-s1',
+        '2026-07-22',
+        'docs/handoffs/v0.1-s1-widgets.md',
+        'Add', 'widget', 'support',
+      ],
+      { cwd: dir, encoding: 'utf8' }
+    );
+
+    assert.equal(result.status, 0, `CLI should exit 0; stderr: ${result.stderr}`);
+
+    const statusContent = fs.readFileSync(path.join(dir, 'docs/STATUS.md'), 'utf8');
+    assert.match(
+      statusContent,
+      /- 2026-07-22 \*\*v0\.1-s1\*\* — Add widget support — \[handoff\]\(docs\/handoffs\/v0\.1-s1-widgets\.md\) — status: awaiting-merge/
+    );
+
+    const combinedOutput = `${result.stdout}${result.stderr}`;
+    assert.match(combinedOutput, /Skipped CLAUDE\.md pointer update/i);
+    assert.doesNotMatch(combinedOutput, /at Object\.<anonymous>/, 'output should not contain a stack trace');
   } finally {
     cleanup();
   }

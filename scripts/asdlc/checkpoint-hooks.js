@@ -37,6 +37,12 @@ function updateClaudeMdPointer(cwd, summaryLine) {
   const claudeMdPath = path.join(cwd, 'CLAUDE.md');
   const content = fs.readFileSync(claudeMdPath, 'utf8');
 
+  if (summaryLine.includes(START_MARKER) || summaryLine.includes(END_MARKER)) {
+    throw new Error(
+      'summaryLine must not contain the asdlc:current-state:auto marker text — this would corrupt the marker span on a future update.'
+    );
+  }
+
   const startIdx = content.indexOf(START_MARKER);
   const endIdx = content.indexOf(END_MARKER);
   if (startIdx === -1 || endIdx === -1 || endIdx < startIdx) {
