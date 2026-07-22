@@ -30,4 +30,50 @@ function appendStatusEntry(cwd, { sprintId, date, summary, handoffRelPath }) {
   fs.appendFileSync(statusPath, line);
 }
 
-module.exports = { appendStatusEntry };
+const START_MARKER = '<!-- asdlc:current-state:auto -->';
+const END_MARKER = '<!-- /asdlc:current-state:auto -->';
+
+function updateClaudeMdPointer(cwd, summaryLine) {
+  const claudeMdPath = path.join(cwd, 'CLAUDE.md');
+  const content = fs.readFileSync(claudeMdPath, 'utf8');
+
+  const startIdx = content.indexOf(START_MARKER);
+  const endIdx = content.indexOf(END_MARKER);
+  if (startIdx === -1 || endIdx === -1 || endIdx < startIdx) {
+    throw new Error(
+      `CLAUDE.md is missing the asdlc:current-state:auto marker pair — cannot safely update the pointer.`
+    );
+  }
+
+  const before = content.slice(0, startIdx + START_MARKER.length);
+  const after = content.slice(endIdx);
+  const rewritten = `${before}\n**Current state:** ${summaryLine}\n${after}`;
+
+  fs.writeFileSync(claudeMdPath, rewritten);
+}
+
+function main() {
+  const [sprintId, date, handoffRelPath, ...summaryParts] = process.argv.slice(2);
+  if (!sprintId || !date || !handoffRelPath || summaryParts.length === 0) {
+    console.error('Usage: node checkpoint-hooks.js <sprint-id> <date> <handoff-rel-path> <summary...>');
+    process.exit(1);
+  }
+  const summary = summaryParts.join(' ');
+  const cwd = process.cwd();
+
+  appendStatusEntry(cwd, { sprintId, date, summary, handoffRelPath });
+  console.log(`Appended STATUS.md entry for ${sprintId}.`);
+
+  try {
+    updateClaudeMdPointer(cwd, `${summary} — see [handoff](${handoffRelPath})`);
+    console.log('Updated CLAUDE.md current-state pointer.');
+  } catch (err) {
+    console.warn(`Skipped CLAUDE.md pointer update: ${err.message}`);
+  }
+}
+
+module.exports = { appendStatusEntry, updateClaudeMdPointer };
+
+if (require.main === module) {
+  main();
+}
