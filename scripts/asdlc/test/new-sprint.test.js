@@ -150,6 +150,73 @@ test('createSprint seeds from _TEMPLATE.md when present', async () => {
   }
 });
 
+test('createSprint throws when slug contains path traversal characters', async () => {
+  const { dir, cleanup } = await makeFixtureRepo();
+  try {
+    const plansDir = path.join(dir, 'docs/superpowers/plans');
+    const before = fs.existsSync(plansDir) ? fs.readdirSync(plansDir) : null;
+
+    assert.throws(
+      () => createSprint(dir, 'v0.1-s1', '../../../../tmp/evil'),
+      /Invalid slug/,
+    );
+
+    const after = fs.existsSync(plansDir) ? fs.readdirSync(plansDir) : null;
+    assert.deepEqual(after, before, 'no new file should appear under docs/superpowers/plans');
+  } finally {
+    cleanup();
+  }
+});
+
+test('createSprint throws when sprintId contains invalid characters', async () => {
+  const { dir, cleanup } = await makeFixtureRepo();
+  try {
+    assert.throws(
+      () => createSprint(dir, '../../etc/evil', 'my-feature'),
+      /Invalid sprintId/,
+    );
+  } finally {
+    cleanup();
+  }
+});
+
+test('createSprint succeeds with a normal sprintId/slug (regression guard)', async () => {
+  const { dir, cleanup } = await makeFixtureRepo();
+  try {
+    const { branch, planPath } = createSprint(dir, 'v0.1-s1', 'my-feature');
+    assert.equal(branch, 'sprint/v0.1-s1');
+    assert.equal(planPath, path.join('docs/superpowers/plans', 'v0.1-s1-my-feature.md'));
+    assert.ok(fs.existsSync(path.join(dir, planPath)));
+  } finally {
+    cleanup();
+  }
+});
+
+test('createSprint throws when _TEMPLATE.md does not contain the expected placeholder', async () => {
+  const { dir, cleanup } = await makeFixtureRepo();
+  try {
+    fs.mkdirSync(path.join(dir, 'docs/superpowers/plans'), { recursive: true });
+    // Placeholder wording changed (hyphen instead of the em-dash the regex
+    // expects), so the marker text survives the .replace() call unexpanded.
+    fs.writeFileSync(
+      path.join(dir, 'docs/superpowers/plans/_TEMPLATE.md'),
+      '# <Sprint id> - <Name> · Plan\n\n## Context (why)\n<fill in>\n',
+    );
+    run('git', ['add', '.'], { cwd: dir });
+    run('git', ['commit', '-m', 'add mismatched template'], { cwd: dir });
+
+    assert.throws(
+      () => createSprint(dir, 'v0.1-s1', 'my-feature'),
+      /_TEMPLATE\.md/,
+    );
+
+    const planPath = path.join(dir, 'docs/superpowers/plans/v0.1-s1-my-feature.md');
+    assert.equal(fs.existsSync(planPath), false, 'no broken plan file should be written');
+  } finally {
+    cleanup();
+  }
+});
+
 test('createSprint uses injected runner', async () => {
   const { dir, cleanup } = await makeFixtureRepo();
   try {

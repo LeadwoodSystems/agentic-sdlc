@@ -68,7 +68,20 @@ function checkGate(cwd, { runner = run } = {}) {
   return { blocked: false, reason: null };
 }
 
+const SAFE_ID_PATTERN = /^[a-zA-Z0-9._-]+$/;
+
+// Guards against path-traversal: sprintId/slug are joined directly into a
+// filesystem path, so they must not contain path separators or ".." segments.
+function assertSafePathSegment(value, label) {
+  if (typeof value !== 'string' || !SAFE_ID_PATTERN.test(value) || value.includes('..')) {
+    throw new Error(`Invalid ${label} "${value}": must match ${SAFE_ID_PATTERN} and must not contain ".."`);
+  }
+}
+
 function createSprint(cwd, sprintId, slug, { runner = run } = {}) {
+  assertSafePathSegment(sprintId, 'sprintId');
+  assertSafePathSegment(slug, 'slug');
+
   runner('git', ['checkout', '-b', `sprint/${sprintId}`], { cwd });
 
   const plansDir = path.join(cwd, 'docs/superpowers/plans');
@@ -82,6 +95,11 @@ function createSprint(cwd, sprintId, slug, { runner = run } = {}) {
   if (fs.existsSync(templatePath)) {
     content = fs.readFileSync(templatePath, 'utf8')
       .replace(/<Sprint id> — <Name>/g, `${sprintId} — ${slug}`);
+    if (content.includes('<Sprint id>')) {
+      throw new Error(
+        `Template at ${templatePath} does not contain the expected "<Sprint id> — <Name>" placeholder — update the template or new-sprint.js's substitution pattern.`,
+      );
+    }
   } else {
     content = `# ${sprintId} — ${slug} · Plan\n\n## Context (why)\n<fill in>\n`;
   }
@@ -111,7 +129,16 @@ function main() {
     console.warn(`WARNING: overriding gate (${gate.reason}) via --force.`);
   }
 
-  const { branch, planPath } = createSprint(cwd, sprintId, slug);
+  let result;
+  try {
+    result = createSprint(cwd, sprintId, slug);
+  } catch (err) {
+    console.error(`Error: ${err.message}`);
+    process.exit(1);
+    return;
+  }
+
+  const { branch, planPath } = result;
   console.log(`Created branch ${branch} and plan ${planPath}`);
 }
 
