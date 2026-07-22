@@ -67,6 +67,69 @@ test('appendStatusEntry sanitizes newlines in summary', async () => {
   }
 });
 
+test('appendStatusEntry sanitizes newlines in sprintId', async () => {
+  const { dir, cleanup } = await makeFixtureRepo();
+  try {
+    appendStatusEntry(dir, {
+      sprintId: 'v0.1-s1\nEVIL-INJECTED-LINE',
+      date: '2026-07-22',
+      summary: 'Add widget support',
+      handoffRelPath: 'docs/handoffs/v0.1-s1-widgets.md',
+    });
+    const content = fs.readFileSync(path.join(dir, 'docs/STATUS.md'), 'utf8');
+    const lines = content.split('\n');
+    const entryLines = lines.filter((l) => l.startsWith('- '));
+    assert.equal(entryLines.length, 1, 'Should have exactly one entry line');
+    assert.match(entryLines[0], /v0\.1-s1 EVIL-INJECTED-LINE/);
+    assert(!entryLines[0].includes('\n'), 'Entry line should not contain embedded newlines');
+    assert(!entryLines[0].includes('\r'), 'Entry line should not contain embedded carriage returns');
+  } finally {
+    cleanup();
+  }
+});
+
+test('appendStatusEntry sanitizes newlines in handoffRelPath', async () => {
+  const { dir, cleanup } = await makeFixtureRepo();
+  try {
+    appendStatusEntry(dir, {
+      sprintId: 'v0.1-s1',
+      date: '2026-07-22',
+      summary: 'Add widget support',
+      handoffRelPath: 'docs/handoffs/v0.1-s1-widgets.md\nEVIL-INJECTED-LINE',
+    });
+    const content = fs.readFileSync(path.join(dir, 'docs/STATUS.md'), 'utf8');
+    const lines = content.split('\n');
+    const entryLines = lines.filter((l) => l.startsWith('- '));
+    assert.equal(entryLines.length, 1, 'Should have exactly one entry line');
+    assert.match(entryLines[0], /v0\.1-s1-widgets\.md EVIL-INJECTED-LINE/);
+    assert(!entryLines[0].includes('\n'), 'Entry line should not contain embedded newlines');
+    assert(!entryLines[0].includes('\r'), 'Entry line should not contain embedded carriage returns');
+  } finally {
+    cleanup();
+  }
+});
+
+test('appendStatusEntry sanitizes bare carriage returns in summary', async () => {
+  const { dir, cleanup } = await makeFixtureRepo();
+  try {
+    appendStatusEntry(dir, {
+      sprintId: 'v0.1-s1',
+      date: '2026-07-22',
+      summary: 'Add widget support\rand fix bugs',
+      handoffRelPath: 'docs/handoffs/v0.1-s1-widgets.md',
+    });
+    const content = fs.readFileSync(path.join(dir, 'docs/STATUS.md'), 'utf8');
+    const lines = content.split('\n');
+    const entryLines = lines.filter((l) => l.startsWith('- '));
+    assert.equal(entryLines.length, 1, 'Should have exactly one entry line');
+    assert.match(entryLines[0], /Add widget support and fix bugs/);
+    assert(!entryLines[0].includes('\n'), 'Entry line should not contain embedded newlines');
+    assert(!entryLines[0].includes('\r'), 'Entry line should not contain embedded carriage returns');
+  } finally {
+    cleanup();
+  }
+});
+
 test('appendStatusEntry creates docs directory if needed', async () => {
   const { dir, cleanup } = await makeFixtureRepo();
   try {

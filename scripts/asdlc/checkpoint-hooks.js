@@ -19,10 +19,14 @@ function appendStatusEntry(cwd, { sprintId, date, summary, handoffRelPath }) {
     fs.writeFileSync(statusPath, STATUS_HEADER);
   }
 
-  // Sanitize summary: replace newlines with spaces to maintain one-line-per-entry invariant
-  const sanitizedSummary = summary.replace(/\n/g, ' ');
+  // Sanitize all interpolated fields: replace CR/LF with spaces to maintain the
+  // one-line-per-entry invariant (a bare \r, not just \r\n, also renders as a
+  // line break in Markdown and must be stripped).
+  const sanitizedSprintId = sprintId.replace(/[\r\n]/g, ' ');
+  const sanitizedSummary = summary.replace(/[\r\n]/g, ' ');
+  const sanitizedHandoffRelPath = handoffRelPath.replace(/[\r\n]/g, ' ');
 
-  const line = `- ${date} **${sprintId}** — ${sanitizedSummary} — [handoff](${handoffRelPath}) — status: awaiting-merge\n`;
+  const line = `- ${date} **${sanitizedSprintId}** — ${sanitizedSummary} — [handoff](${sanitizedHandoffRelPath}) — status: awaiting-merge\n`;
   fs.appendFileSync(statusPath, line);
 }
 
