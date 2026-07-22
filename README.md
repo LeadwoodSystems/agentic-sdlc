@@ -42,23 +42,27 @@ answer one question cheaply: *where were we, and what do I do next?*
 | Command | What it does |
 |---|---|
 | `/bootstrap-asdlc` | Scaffold this workflow into a new (or existing) repo |
-| `/sprint [name]` | Start a sprint — scaffold its plan, kick off brainstorm → plan |
-| `/checkpoint` | Non-blocking gate: tests + handoff-exists + STATUS reminder, then stage |
+| `/verify-issue [id]` | Adversarially check a tracked issue against the codebase before it becomes a plan |
+| `/sprint [name]` | Start a sprint — runs the sprint gate, scaffolds its plan, kicks off brainstorm → plan |
+| `/checkpoint` | Non-blocking gate: tests + handoff-exists + STATUS/CLAUDE.md pointer script, then stage |
 | `/handoff` | Generate an evidence-bearing handoff from the template |
+| `/asdlc-hygiene [trunk] [version]` | On-demand audit: stale branches, default-branch drift, untriaged issues, milestone/version sync |
 
 ## State model — one source of truth
 
 | Tier | Lives in | Holds |
 |---|---|---|
 | Durable | `CLAUDE.md` | architecture, rules, gotchas — read every session, in full |
-| History | `docs/STATUS.md` | append-only running log, oldest → newest |
+| History | `docs/STATUS.md` | append-only, **machine-generated only** (never hand-edited) |
 | Current state | latest `docs/handoffs/*.md` | status, evidence, follow-ups — read at session start |
 
 Exactly one source of truth for "where things are": the newest handoff. Don't hand-sync
 the same status into `CLAUDE.md`, memory, and a handoff — that drifts.
 
-This maps onto GitHub Spec-Kit (Spec → Plan → Tasks → Implement) and AWS Kiro (steering
-vs. specs); you get the same benefits without the tooling lock-in.
+Plans and handoffs share one naming scheme: `vMAJOR.MINOR-sN-<slug>.md`. When a milestone
+closes, run `node scripts/asdlc/archive-sprint-docs.js <milestone>` to move each type's files
+into its own `archive/<milestone>/` subdirectory (`docs/handoffs/archive/<milestone>/`,
+`docs/superpowers/plans/archive/<milestone>/`) so the live directories stay small.
 
 ## Works for solo devs and small teams — it's just GitHub
 
@@ -88,13 +92,18 @@ Or point Claude Code at this repo directly once it's public:
 
 ## Common mistakes
 
-- Letting `CLAUDE.md` accumulate a changelog → move it to `docs/STATUS.md`.
-- Tracking state in multiple hand-synced files → drift. The latest handoff is authoritative.
+- Hand-editing `docs/STATUS.md` or CLAUDE.md's current-state line → let
+  `scripts/asdlc/checkpoint-hooks.js` own both; hand-edits are exactly what caused drift
+  in real usage.
 - Skipping the handoff "to save time" → the next session can't resume; this is the one
   step never to cut.
 - Pushing straight to `main`, or bundling many sprints into one PR.
-- Hard-blocking hooks for routine actions → prefer non-blocking helper commands and keep
-  the human-approval checkpoints; they are a feature, not friction.
+- Letting merged sprint branches pile up, or milestones drift from the sprint version
+  scheme → run `/asdlc-hygiene` periodically to catch both.
+- Hard-blocking hooks for routine actions → prefer non-blocking helper commands; the
+  one exception is `new-sprint.js`'s gate, which *does* hard-block starting a new sprint
+  on top of an uncommitted one — that specific failure mode was observed in practice and
+  is deliberately not advisory.
 
 ## Layout
 
@@ -107,6 +116,15 @@ commands/
   sprint.md              /sprint
   checkpoint.md          /checkpoint
   handoff.md             /handoff
+  verify-issue.md        /verify-issue
+  asdlc-hygiene.md       /asdlc-hygiene
+scripts/asdlc/
+  lib/exec.js            shared git/gh exec helper
+  new-sprint.js           sprint-start gate + branch/plan scaffolding
+  checkpoint-hooks.js     STATUS.md append + CLAUDE.md pointer rewrite
+  finish-sprint.js        post-merge status flip, branch cleanup, milestone check
+  gh-hygiene.js           read-only hygiene audit
+  archive-sprint-docs.js  milestone-scoped archival
 skills/agentic-sdlc/
   SKILL.md               the skill Claude Code loads
   references/            state model + plan/handoff/CLAUDE.md templates

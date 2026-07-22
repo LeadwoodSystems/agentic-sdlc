@@ -2,6 +2,11 @@
 
 **Date:** YYYY-MM-DD  ·  **Branch:** `<branch>`
 
+> File name: `docs/superpowers/plans/vMAJOR.MINOR-sN-<slug>.md` — this is the one
+> canonical scheme. `scripts/asdlc/new-sprint.js` creates files here by combining
+> `sprintId` and slug, but does not validate the `vMAJOR.MINOR-sN` format — callers
+> must ensure this naming discipline.
+
 ## Context (why)
 <The problem/need this sprint addresses and the intended outcome — 2–4 sentences.>
 

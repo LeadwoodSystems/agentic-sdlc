@@ -30,27 +30,31 @@ Two rules make it work:
 3. **Verify with real evidence** (commands run, live output, test counts — not assertions). REQUIRED SUB-SKILL: superpowers:verification-before-completion.
 4. **Adversarial review for risky/security work** — fan out reviewers by dimension, verify/refute each finding, fix the real ones. REQUIRED SUB-SKILL: superpowers:requesting-code-review.
 5. **Handoff** → an evidence-bearing `docs/handoffs/<sprint>.md` so a fresh session resumes exactly here (`/handoff`).
-6. **Checkpoint** (`/checkpoint`) → run targeted tests (changed files + dependents, capped at ~3 min — not the full suite), confirm the handoff exists, update `docs/STATUS.md`, stage the commit. Then **STOP for approval** and **`/clear`** before the next sprint.
+6. **Checkpoint** (`/checkpoint`) → run targeted tests (changed files + dependents, capped at ~3 min — not the full suite), confirm the handoff exists, run `scripts/asdlc/checkpoint-hooks.js` to append `docs/STATUS.md` and update `CLAUDE.md`'s pointer, stage the commit. Then **STOP for approval** and **`/clear`** before the next sprint. After the PR merges, run `scripts/asdlc/finish-sprint.js` to flip the STATUS entry to merged and clean up the branch.
 
 ## Commands
-- `/bootstrap-asdlc` — scaffold this workflow into a new repo.
+- `/bootstrap-asdlc` — scaffold this workflow (including `scripts/asdlc/`) into a new repo.
 - `/verify-issue [id]` — adversarially check a tracked issue against the current
   codebase before it becomes a plan (research → draft → independent fact-check →
   correct → push with the tracker's own sequencing conventions). See
   `references/issue-verification-methodology.md`.
-- `/sprint [name]` — start a sprint: scaffold its plan, kick off brainstorm→plan.
-- `/checkpoint` — non-blocking gate: targeted tests (<=3min) + handoff-exists + STATUS reminder, then stage.
+- `/sprint [name]` — start a sprint: run the `new-sprint.js` gate, scaffold its plan, kick off brainstorm→plan.
+- `/checkpoint` — non-blocking gate: targeted tests (<=3min) + handoff-exists + STATUS/pointer script, then stage.
 - `/handoff` — generate the handoff doc from the template.
+- `/asdlc-hygiene [trunk] [version]` — on-demand read-only audit: stale branches, default-branch drift, untriaged issues, milestone/version sync.
 
 ## State model (single source of truth)
-- `CLAUDE.md` — durable rules + architecture only (<200 lines).
-- `docs/STATUS.md` — append-only running history; newest at the bottom.
+- `CLAUDE.md` — durable rules + architecture only (<200 lines). Its "current state"
+  line lives between `<!-- asdlc:current-state:auto -->` markers, owned by
+  `scripts/asdlc/checkpoint-hooks.js` — never hand-edit that span.
+- `docs/STATUS.md` — append-only running history, machine-generated only (never
+  hand-edited); newest at the bottom.
 - `docs/handoffs/<sprint>.md` — **the** current-state source; read the latest to resume.
+- Naming for both plans and handoffs: `vMAJOR.MINOR-sN-<slug>.md`. When a milestone
+  closes, run `scripts/asdlc/archive-sprint-docs.js <milestone>` to keep the live
+  directories from growing unbounded.
 - Per-project specifics (stack, gotchas, domain recipes) → `CLAUDE.md` + path-scoped
   `.claude/rules/*.md` (loads only when touching matching files).
-
-See `references/state-model.md` for the full model and the generalize-vs-per-project split;
-`references/` also holds the plan, handoff, and thin-`CLAUDE.md` templates.
 
 ## Context hygiene
 `/clear` between sprints and after two failed corrections. Delegate exploration/review to
@@ -58,7 +62,11 @@ subagents — they report ~1–2k-token summaries, keeping the main window clean
 just-in-time retrieval (read the latest handoff, not all history).
 
 ## Common mistakes
-- Letting `CLAUDE.md` accumulate a changelog → move it to `docs/STATUS.md`.
+- Hand-editing `CLAUDE.md`'s current-state pointer or `docs/STATUS.md` → let
+  `checkpoint-hooks.js`/`finish-sprint.js` own both; this is the exact drift observed
+  in real multi-hundred-sprint usage.
 - Tracking state in multiple hand-synced files → drift. The latest handoff is authoritative.
 - Skipping the handoff "to save time" → the next session can't resume; this is the one step never to cut.
-- Hard-blocking hooks for routine actions → prefer non-blocking helper commands and keep the human-approval checkpoints; they are a feature, not friction.
+- Letting milestones drift from the sprint version scheme, or branches pile up unmerged
+  → run `/asdlc-hygiene` periodically.
+- Hard-blocking hooks for routine actions → prefer non-blocking helper commands and keep the human-approval checkpoints; they are a feature, not friction. The `new-sprint.js` gate is the deliberate exception — it hard-blocks starting a new sprint over an uncommitted one, because that specific failure mode was observed eroding under momentum in practice.

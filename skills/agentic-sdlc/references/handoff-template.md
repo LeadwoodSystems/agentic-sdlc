@@ -4,6 +4,9 @@
 **Branch / commit:** `<branch>` @ `<sha>`
 **Status:** <complete / partial>
 
+> File name: `docs/handoffs/vMAJOR.MINOR-sN-<slug>.md` — matching the plan's slug lets
+> `scripts/asdlc/new-sprint.js`'s gate detect a plan/handoff pair automatically.
+
 ## Goal
 <One sentence from the plan — what this sprint set out to do.>
 
