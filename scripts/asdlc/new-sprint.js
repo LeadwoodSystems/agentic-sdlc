@@ -93,9 +93,16 @@ function createSprint(cwd, sprintId, slug, { runner = run } = {}) {
 
   let content;
   if (fs.existsSync(templatePath)) {
+    const substituted = `${sprintId} — ${slug}`;
     content = fs.readFileSync(templatePath, 'utf8')
-      .replace(/<Sprint id> — <Name>/g, `${sprintId} — ${slug}`);
-    if (content.includes('<Sprint id>')) {
+      .replace(/<Sprint id> — <Name>/g, substituted);
+    // Check that the substitution actually took effect, rather than merely
+    // checking that the placeholder is gone: a template with zero occurrences
+    // of "<Sprint id> — <Name>" would pass a "placeholder absent" check
+    // without ever having sprintId/slug substituted in, silently writing a
+    // broken plan file. Requiring the substituted string to be present
+    // catches both that case and the "placeholder survives mismatched" case.
+    if (!content.includes(substituted)) {
       throw new Error(
         `Template at ${templatePath} does not contain the expected "<Sprint id> — <Name>" placeholder — update the template or new-sprint.js's substitution pattern.`,
       );

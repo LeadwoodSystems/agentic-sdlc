@@ -217,6 +217,32 @@ test('createSprint throws when _TEMPLATE.md does not contain the expected placeh
   }
 });
 
+test('createSprint throws when _TEMPLATE.md contains no occurrence of the placeholder at all', async () => {
+  const { dir, cleanup } = await makeFixtureRepo();
+  try {
+    fs.mkdirSync(path.join(dir, 'docs/superpowers/plans'), { recursive: true });
+    // Template rewritten with different wording entirely — the placeholder
+    // string never appears, so a naive "placeholder absent means it must
+    // have been substituted" check would wrongly let this through.
+    fs.writeFileSync(
+      path.join(dir, 'docs/superpowers/plans/_TEMPLATE.md'),
+      '# Unrelated Plan Template\n\n## Context (why)\n<fill in>\n',
+    );
+    run('git', ['add', '.'], { cwd: dir });
+    run('git', ['commit', '-m', 'add unrelated template'], { cwd: dir });
+
+    assert.throws(
+      () => createSprint(dir, 'v0.1-s1', 'my-feature'),
+      /_TEMPLATE\.md/,
+    );
+
+    const planPath = path.join(dir, 'docs/superpowers/plans/v0.1-s1-my-feature.md');
+    assert.equal(fs.existsSync(planPath), false, 'no broken plan file should be written');
+  } finally {
+    cleanup();
+  }
+});
+
 test('createSprint uses injected runner', async () => {
   const { dir, cleanup } = await makeFixtureRepo();
   try {
