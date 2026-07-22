@@ -13,8 +13,17 @@ in `docs/STATUS.md`; don't grow this file with per-sprint narrative.
 ---
 
 ## Where the build is
-**Current state:** <one line>. To resume, read the **latest** `docs/handoffs/` file
-(single source of truth). Full running history: `docs/STATUS.md`. Branch discipline: <…>.
+<!-- asdlc:current-state:auto -->
+**Current state:** <one line>.
+<!-- /asdlc:current-state:auto -->
+
+To resume, read the **latest** `docs/handoffs/` file (single source of truth). Full
+running history: `docs/STATUS.md`. Branch discipline: <…>.
+
+> The text between the markers above is owned by `scripts/asdlc/checkpoint-hooks.js` —
+> it is rewritten on every `/checkpoint`. Never hand-edit between the markers; if they're
+> missing (e.g. an older `CLAUDE.md`), add them back rather than letting the script warn
+> and skip.
 
 ---
 
