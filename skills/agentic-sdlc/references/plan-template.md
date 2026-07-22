@@ -2,6 +2,9 @@
 
 **Date:** YYYY-MM-DD  ·  **Branch:** `<branch>`
 
+> File name: `docs/superpowers/plans/vMAJOR.MINOR-sN-<slug>.md` — this is the one
+> canonical scheme; `scripts/asdlc/new-sprint.js` creates files this way automatically.
+
 ## Context (why)
 <The problem/need this sprint addresses and the intended outcome — 2–4 sentences.>
 
