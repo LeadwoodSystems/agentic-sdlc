@@ -25,8 +25,9 @@ function appendStatusEntry(cwd, { sprintId, date, summary, handoffRelPath }) {
   const sanitizedSprintId = sprintId.replace(/[\r\n]/g, ' ');
   const sanitizedSummary = summary.replace(/[\r\n]/g, ' ');
   const sanitizedHandoffRelPath = handoffRelPath.replace(/[\r\n]/g, ' ');
+  const sanitizedDate = date.replace(/[\r\n]/g, ' ');
 
-  const line = `- ${date} **${sanitizedSprintId}** — ${sanitizedSummary} — [handoff](${sanitizedHandoffRelPath}) — status: awaiting-merge\n`;
+  const line = `- ${sanitizedDate} **${sanitizedSprintId}** — ${sanitizedSummary} — [handoff](${sanitizedHandoffRelPath}) — status: awaiting-merge\n`;
   fs.appendFileSync(statusPath, line);
 }
 

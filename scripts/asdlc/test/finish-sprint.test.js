@@ -27,6 +27,29 @@ test('markMerged flips only the matching line', async () => {
   }
 });
 
+test('markMerged sanitizes newlines embedded in sha', async () => {
+  const { dir, cleanup } = await makeFixtureRepo();
+  try {
+    const statusPath = path.join(dir, 'docs/STATUS.md');
+    fs.mkdirSync(path.dirname(statusPath), { recursive: true });
+    fs.writeFileSync(statusPath, [
+      '- 2026-07-20 **v0.1-s1** — First — [handoff](docs/handoffs/v0.1-s1-a.md) — status: awaiting-merge',
+      '- 2026-07-21 **v0.1-s2** — Second — [handoff](docs/handoffs/v0.1-s2-b.md) — status: awaiting-merge',
+      '',
+    ].join('\n'));
+
+    markMerged(dir, 'v0.1-s2', 'abc1234\nEVIL-INJECTED-LINE');
+
+    const rawLines = fs.readFileSync(statusPath, 'utf8').split('\n').filter(Boolean);
+    assert.equal(rawLines.length, 2, 'STATUS.md should still have exactly two entry lines');
+    assert.match(rawLines[0], /v0\.1-s1.*status: awaiting-merge/);
+    assert.match(rawLines[1], /v0\.1-s2.*status: merged \(abc1234 EVIL-INJECTED-LINE\)/);
+    assert(!rawLines[1].includes('\r'), 'merged line should not contain embedded carriage returns');
+  } finally {
+    cleanup();
+  }
+});
+
 test('markMerged throws when no matching awaiting-merge line exists', async () => {
   const { dir, cleanup } = await makeFixtureRepo();
   try {

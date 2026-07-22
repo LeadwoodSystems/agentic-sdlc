@@ -19,7 +19,8 @@ function markMerged(cwd, sprintId, sha) {
     throw new Error(`No awaiting-merge entry found for ${sprintId} in docs/STATUS.md.`);
   }
 
-  lines[idx] = lines[idx].replace('status: awaiting-merge', `status: merged (${sha})`);
+  const sanitizedSha = sha.replace(/[\r\n]/g, ' ');
+  lines[idx] = lines[idx].replace('status: awaiting-merge', `status: merged (${sanitizedSha})`);
   fs.writeFileSync(statusPath, lines.join('\n'));
 }
 
