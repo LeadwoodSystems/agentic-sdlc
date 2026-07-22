@@ -77,4 +77,74 @@ function deleteBranch(cwd, branchName, { runner = run } = {}) {
   }
 }
 
-module.exports = { markMerged, deleteBranch };
+/**
+ * checkMilestone(cwd, issueNumbers, { runner = run } = {})
+ * For each issue number, runs `gh issue view <n> --json milestone` and returns
+ * an array of { issue, milestone: string|null, error?: string }.
+ *
+ * If any `gh` call fails for a particular issue, that issue's result includes
+ * an `error` property with the failure reason. Other issues continue processing.
+ * This allows the caller (main()) to report per-issue failures without crashing
+ * the whole CLI, since by the time milestone check runs, the core work
+ * (markMerged + deleteBranch) is already complete and successful.
+ */
+function checkMilestone(cwd, issueNumbers, { runner = run } = {}) {
+  return issueNumbers.map((issue) => {
+    try {
+      const out = runner('gh', ['issue', 'view', String(issue), '--json', 'milestone'], { cwd });
+      const parsed = JSON.parse(out);
+      return { issue, milestone: parsed.milestone ? parsed.milestone.title : null };
+    } catch (err) {
+      return { issue, error: err.message };
+    }
+  });
+}
+
+/**
+ * main()
+ * CLI entry point: node finish-sprint.js <sprint-id> <sha> [issue-numbers...]
+ *
+ * Steps:
+ * 1. Validate args (sprint-id, sha required)
+ * 2. Call markMerged(cwd, sprintId, sha) — update docs/STATUS.md
+ * 3. Call deleteBranch(cwd, `sprint/${sprintId}`) — clean up sprint branch
+ * 4. If issue numbers provided, call checkMilestone and report missing milestones
+ *
+ * The milestone check is advisory and wrapped in error handling so that
+ * a failure to fetch milestone data (bad issue number, auth failure, network blip)
+ * doesn't crash the process — the core work is already done at that point.
+ * Any per-issue milestone-check errors are logged as warnings but don't exit
+ * with non-zero status.
+ */
+function main() {
+  const [sprintId, sha, ...issueArgs] = process.argv.slice(2);
+  if (!sprintId || !sha) {
+    console.error('Usage: node finish-sprint.js <sprint-id> <sha> [issue-numbers...]');
+    process.exit(1);
+  }
+  const cwd = process.cwd();
+
+  markMerged(cwd, sprintId, sha);
+  console.log(`Marked ${sprintId} as merged (${sha}) in docs/STATUS.md.`);
+
+  deleteBranch(cwd, `sprint/${sprintId}`);
+  console.log(`Deleted branch sprint/${sprintId} (local + remote if present).`);
+
+  const issueNumbers = issueArgs.map(Number).filter((n) => !Number.isNaN(n));
+  if (issueNumbers.length > 0) {
+    const results = checkMilestone(cwd, issueNumbers);
+    for (const result of results) {
+      if (result.error) {
+        console.warn(`Warning: Could not check milestone for issue #${result.issue}: ${result.error}`);
+      } else if (!result.milestone) {
+        console.warn(`Issue #${result.issue} has no milestone assigned — consider assigning one.`);
+      }
+    }
+  }
+}
+
+module.exports = { markMerged, deleteBranch, checkMilestone };
+
+if (require.main === module) {
+  main();
+}
