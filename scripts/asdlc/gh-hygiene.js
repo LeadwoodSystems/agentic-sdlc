@@ -67,7 +67,18 @@ function checkMilestoneVersionSync(cwd, currentSprintVersion, { runner = run } =
     ['api', 'repos/{owner}/{repo}/milestones', '--jq', '.[].title'],
     { cwd },
   );
-  const milestoneVersions = out.split('\n').map((l) => l.trim()).filter(Boolean);
+  const titles = out.split('\n').map((l) => l.trim()).filter(Boolean);
+  // Real GitHub milestone titles are rarely bare "v0.12" strings — they're
+  // usually something like "Sprint v0.12: <goal>". Extract the version-like
+  // token (vX.Y) out of each title rather than comparing whole title strings,
+  // otherwise a milestone that genuinely covers the current sprint version
+  // would be reported as "out of sync" just because its title has extra text.
+  const versionPattern = /v\d+\.\d+/g;
+  const milestoneVersions = [];
+  for (const title of titles) {
+    const matches = title.match(versionPattern);
+    if (matches) milestoneVersions.push(...matches);
+  }
   return { inSync: milestoneVersions.includes(currentSprintVersion), milestoneVersions };
 }
 

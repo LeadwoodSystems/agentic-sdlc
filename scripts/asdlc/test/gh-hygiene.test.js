@@ -96,6 +96,22 @@ test('checkMilestoneVersionSync detects a version scheme mismatch', async () => 
   }
 });
 
+test('checkMilestoneVersionSync extracts version-like tokens from titles with extra text', async () => {
+  const { dir, cleanup } = await makeFixtureRepo();
+  try {
+    // Real GitHub milestone titles are rarely bare "v0.12" strings — they're
+    // usually something like "Sprint v0.12: <goal>". The interface spec says
+    // this function "extracts version-like tokens (vX.Y) from milestone
+    // titles", so it must pull the token out rather than compare whole titles.
+    const stubRunner = () => 'Sprint v0.12: consolidate loop hardening\nBacklog\nv0.9 wrap-up\n';
+    const result = checkMilestoneVersionSync(dir, 'v0.12', { runner: stubRunner });
+    assert.equal(result.inSync, true);
+    assert.deepEqual(result.milestoneVersions, ['v0.12', 'v0.9']);
+  } finally {
+    cleanup();
+  }
+});
+
 test('runHygieneAudit aggregates all four checks', async () => {
   const { dir, cleanup } = await makeFixtureRepo();
   try {
