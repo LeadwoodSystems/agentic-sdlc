@@ -112,6 +112,35 @@ extracts the payload (CRLF-tolerant — the GitHub API returns `\r\n`), and `ups
 replaces the marked span in place or appends the section if absent, leaving everything
 outside the markers byte-identical.
 
+## The inflation failure mode
+
+**An assessor asked to judge difficulty will inflate it unless explicitly told not to.**
+This is the single most reliable way for a profiling pass to become worthless, and it is
+measured, not theoretical. In the first real run against a 32-issue milestone, an
+uncalibrated batch returned `planning: deep` on **8 of 9** issues. Adding one paragraph to
+the assessor's brief — *name the specific open question or downgrade* — moved the next
+batch to 1 of 4, and that one `deep` arrived with four named unresolved decisions.
+
+Same rubric, same codebase, same model. The difference was the instruction.
+
+Why it matters: an axis that always returns the same value carries no information. A
+backlog labelled `deep` everywhere routes exactly as badly as one labelled nothing, and
+costs more. It also poisons the feedback loop at the source, because the first evidence
+ever recorded is biased high.
+
+The counter-instruction, which belongs in every profiling prompt:
+
+> `deep` is justified when there is a genuine decision to make — competing designs, an
+> unresolved ambiguity, a constraint that must be discovered before code can be written.
+> It is NOT justified merely because the surrounding system is complex or the issue is
+> important. If the design is already settled — in the issue, a spec, a build-sequence
+> doc, or a rule file — planning is `standard` or `fast`, and you should say where it was
+> settled. Justify `deep` by naming the specific open question; if you cannot name one, do
+> not use `deep`.
+
+Check the project's own written decisions *before* concluding a decision is open. In
+practice the most common correct downgrade is "this was already decided, here is where."
+
 ## Labels
 
 Three families, one label from each: `complexity/{low,medium,high}`,

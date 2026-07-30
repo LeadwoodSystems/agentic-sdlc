@@ -54,7 +54,14 @@ milestone. `--dry-run` prints the proposed body and labels without writing anyth
    routes work wrong — which is worse than no profile, because it looks authoritative.
 
    Delegate this to a subagent per issue when profiling a whole milestone; each
-   assessment is an independent research task and they parallelize cleanly.
+   assessment is an independent research task and they parallelize cleanly. **Include the
+   anti-inflation counter-instruction from `references/execution-profiles.md` verbatim in
+   every subagent brief** — without it, measured, an uncalibrated pass routed planning to
+   `deep` on 8 of 9 issues.
+
+   After each batch, print the class distribution per phase. If any phase is returning one
+   value almost every time, that axis has stopped carrying information — stop and
+   recalibrate before profiling more.
 
 5. **Derive the profile.** Summarize the dimensions into `complexity`, `risk`,
    `architecture_impact`, `expected_duration`, and `blast_radius`. Then set each phase's
