@@ -43,6 +43,7 @@ answer one question cheaply: *where were we, and what do I do next?*
 |---|---|
 | `/bootstrap-asdlc` | Scaffold this workflow into a new (or existing) repo |
 | `/verify-issue [id]` | Adversarially check a tracked issue against the codebase before it becomes a plan |
+| `/profile-issue [id]` | Assess an issue and attach an Execution Profile — complexity, risk, and per-phase routing |
 | `/sprint [name]` | Start a sprint — runs the sprint gate, scaffolds its plan, kicks off brainstorm → plan |
 | `/checkpoint` | Non-blocking gate: tests + handoff-exists + STATUS/CLAUDE.md pointer script, then stage |
 | `/handoff` | Generate an evidence-bearing handoff from the template |
@@ -117,9 +118,11 @@ commands/
   checkpoint.md          /checkpoint
   handoff.md             /handoff
   verify-issue.md        /verify-issue
+  profile-issue.md       /profile-issue
   asdlc-hygiene.md       /asdlc-hygiene
 scripts/asdlc/
   lib/exec.js            shared git/gh exec helper
+  lib/profile-block.js    execution-profile block parse/upsert
   new-sprint.js           sprint-start gate + branch/plan scaffolding
   checkpoint-hooks.js     STATUS.md append + CLAUDE.md pointer rewrite
   finish-sprint.js        post-merge status flip, branch cleanup, milestone check

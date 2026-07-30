@@ -90,7 +90,7 @@ test('checkDefaultBranch re-throws unrelated git failures instead of swallowing 
   }
 });
 
-test('findUntriagedIssues flags no-labels and no-milestone issues', async () => {
+test('findUntriagedIssues flags no-labels, no-milestone and no-execution-profile issues', async () => {
   const { dir, cleanup } = await makeFixtureRepo();
   try {
     const stubRunner = () => JSON.stringify([
@@ -101,7 +101,50 @@ test('findUntriagedIssues flags no-labels and no-milestone issues', async () => 
     const result = findUntriagedIssues(dir, { runner: stubRunner });
     assert.deepEqual(result, [
       { number: 1, reason: 'no-labels' },
+      { number: 1, reason: 'no-execution-profile' },
       { number: 2, reason: 'no-milestone' },
+      { number: 2, reason: 'no-execution-profile' },
+      { number: 3, reason: 'no-execution-profile' },
+    ]);
+  } finally {
+    cleanup();
+  }
+});
+
+test('findUntriagedIssues clears an issue carrying all three routing labels', async () => {
+  const { dir, cleanup } = await makeFixtureRepo();
+  try {
+    const stubRunner = () => JSON.stringify([
+      {
+        number: 1,
+        labels: [
+          { name: 'bug' },
+          { name: 'complexity/medium' },
+          { name: 'risk/low' },
+          { name: 'execution/standard' },
+        ],
+        milestone: { title: 'v0.9' },
+      },
+    ]);
+    assert.deepEqual(findUntriagedIssues(dir, { runner: stubRunner }), []);
+  } finally {
+    cleanup();
+  }
+});
+
+test('findUntriagedIssues still flags an issue missing just one routing axis', async () => {
+  const { dir, cleanup } = await makeFixtureRepo();
+  try {
+    const stubRunner = () => JSON.stringify([
+      {
+        number: 7,
+        // complexity/* and execution/* present, risk/* missing.
+        labels: [{ name: 'complexity/high' }, { name: 'execution/deep' }],
+        milestone: { title: 'v0.9' },
+      },
+    ]);
+    assert.deepEqual(findUntriagedIssues(dir, { runner: stubRunner }), [
+      { number: 7, reason: 'no-execution-profile' },
     ]);
   } finally {
     cleanup();

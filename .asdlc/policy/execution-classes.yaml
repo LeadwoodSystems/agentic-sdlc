@@ -1,0 +1,83 @@
+# ASDLC execution classes — the class→model mapping for the Adaptive Execution Engine.
+#
+# Read by a human or an agent; NEVER parsed by a script. That is deliberate: Node
+# core has no YAML parser, this plugin has zero dependencies, and the PowerShell
+# ports have no ConvertFrom-Yaml. Anything a script must read is JSON — see
+# skills/agentic-sdlc/references/execution-profiles.md.
+#
+# Issue labels carry the CLASS (`execution/deep`), never the model. When the model
+# lineup turns over, re-point the class here; the backlog needs no relabelling.
+
+version: 1
+updated: 2026-07-30
+
+classes:
+  fast:
+    model: claude-haiku-4-5
+    use_for:
+      - documentation and formatting
+      - isolated single-file fixes
+      - repetitive mechanical work
+      - handoff generation
+      - issue grooming
+
+  standard:
+    model: claude-sonnet-5
+    use_for:
+      - feature implementation
+      - API, UI, and database work
+      - moderate debugging
+      - writing tests
+      - task-level code review
+
+  deep:
+    model: claude-opus-5
+    use_for:
+      - architecture and planning
+      - difficult debugging
+      - cross-cutting refactors
+      - security-sensitive work
+      - governance decisions
+      - ambiguous requirements
+      - final whole-branch review
+
+  deterministic:
+    model: null          # no LLM — delegate to the runner/toolchain
+    runner: ci
+    use_for:
+      - lint and typecheck
+      - unit and integration tests
+      - builds and Docker images
+      - migrations
+      - CI verification
+
+# Defaults below are NOT invented — they are the convention GAW converged on over
+# 100+ sprints, read off its handoffs and written down here for the first time:
+# "sonnet implements and reviews tasks, opus does the final whole-branch review,
+# escalate for security-sensitive branches."
+#   docs/handoffs/v0.12-s7-resume-run-token-gap.md:77,80
+#   docs/handoffs/archive/v0.10/v0.10-s2-llm-provider-connections.md:73
+default_routing:
+  planning: deep
+  implementation: standard
+  task_review: standard
+  final_review: deep
+  verification: deterministic
+  documentation: fast
+
+escalation:
+  # Escalate one class (fast→standard→deep) when any of these fire.
+  on_implementation_failures: 2
+  on_hidden_coupling_discovered: true
+  on_scope_expansion: true
+  on_security_boundary_change: true
+
+  # Security-sensitive branches take the final review to `deep` regardless of the
+  # issue's own risk label. This is GAW's existing written policy (CLAUDE.md:68),
+  # which mandates adversarial review but names no model.
+  security_forces_review_class: deep
+
+  # `deep` is the ceiling for automatic escalation. Going beyond it is a human
+  # call, not a routing decision.
+  max_class: deep
+  beyond_max: claude-fable-5
