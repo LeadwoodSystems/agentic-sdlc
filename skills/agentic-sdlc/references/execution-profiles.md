@@ -68,6 +68,7 @@ radius is one function. No auth, no persistence, no schema.
   "stage": "estimated",
   "source_issues": [197],
   "sprint_id": null,
+  "assessed_at_sha": "d230764",
   "complexity": "low",
   "risk": "low",
   "architecture_impact": "low",
@@ -90,6 +91,13 @@ Field notes:
 - `stage` — `estimated` (on the issue) → `committed` (in the plan) → `actual` (in the handoff).
 - `source_issues` / `sprint_id` — the join key that lets an estimate be compared against
   what actually happened. `sprint_id` is `null` until a sprint picks the issue up.
+- `assessed_at_sha` — the commit the assessment was made against. **Not optional.** A
+  backlog-wide profiling pass necessarily races in-flight sprints: the first real run of
+  this command hit a repo mid-sprint with uncommitted edits to the very files being cited,
+  and line numbers differed by ~15 between `HEAD` and the working tree. Without the SHA a
+  reader cannot tell a wrong citation from a stale one. Prefer citing a symbol
+  (`observability.record`) over a bare line where both are available — symbols survive
+  rebases, line numbers do not.
 - `expected_duration` — one of `<30min`, `30-90min`, `half-day`, `full-day`, `multi-sprint`.
 - `complexity` / `risk` / `architecture_impact` — `low` | `medium` | `high`.
 - `escalation` — the conditions that should trigger a re-route mid-sprint.

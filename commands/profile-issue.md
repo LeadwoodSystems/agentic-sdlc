@@ -40,7 +40,13 @@ milestone. `--dry-run` prints the proposed body and labels without writing anyth
 2. **Read the issue in full** — title, body, labels, milestone, linked issues/PRs, and
    any existing `## ASDLC Execution Profile` section (re-profiling replaces it).
 
-3. **Assess against the actual codebase, not the issue text.** Work the nine dimensions
+3. **Record the commit you are assessing against** — `git rev-parse --short HEAD` — and
+   put it in the profile's `assessed_at_sha`. Check `git status` too: if the working tree
+   is mid-sprint, say so in the assessment and cite symbols rather than bare line numbers.
+   A backlog-wide pass races in-flight work, and an uncited-SHA line number is
+   indistinguishable from a wrong one a week later.
+
+4. **Assess against the actual codebase, not the issue text.** Work the nine dimensions
    from the reference doc: ambiguity, architectural impact, blast radius, codebase
    familiarity, reasoning depth, hidden coupling, implementation complexity, security
    implications, review effort. Read the files the issue names. Find out what already
@@ -50,14 +56,14 @@ milestone. `--dry-run` prints the proposed body and labels without writing anyth
    Delegate this to a subagent per issue when profiling a whole milestone; each
    assessment is an independent research task and they parallelize cleanly.
 
-4. **Derive the profile.** Summarize the dimensions into `complexity`, `risk`,
+5. **Derive the profile.** Summarize the dimensions into `complexity`, `risk`,
    `architecture_impact`, `expected_duration`, and `blast_radius`. Then set each phase's
    class: start from `default_routing` in the policy file and deviate only where the
    assessment justifies it — say which dimension drove the deviation. Verification is
    `deterministic` unless there is genuinely nothing a runner can check. Security
    implications force review to `deep`.
 
-5. **Write the section.** Human assessment prose first (with citations), then the JSON
+6. **Write the section.** Human assessment prose first (with citations), then the JSON
    block inside the markers. Use `scripts/asdlc/lib/profile-block.js` rather than
    hand-editing — it preserves CRLF, replaces an existing block in place, and leaves
    everything outside the markers byte-identical:
@@ -76,7 +82,7 @@ milestone. `--dry-run` prints the proposed body and labels without writing anyth
 
    Under `--dry-run`, stop here and print the diff instead of running `gh issue edit`.
 
-6. **Apply the labels** — one from each family, matching the profile. The
+7. **Apply the labels** — one from each family, matching the profile. The
    `execution/*` label records the **implementation** class:
 
    ```bash
