@@ -112,6 +112,14 @@ extracts the payload (CRLF-tolerant — the GitHub API returns `\r\n`), and `ups
 replaces the marked span in place or appends the section if absent, leaving everything
 outside the markers byte-identical.
 
+**Neither the payload nor the assessment may contain a ``` fence**, and `upsertProfile`
+throws if either does. The assessment is the likelier offender — it is long-form markdown
+that quotes files and config — and it is the more dangerous one: the prose is emitted
+*above* the JSON fence inside the same marker span, so a fenced block in the prose is the
+first one `parseProfile` finds. It returns that object instead of the profile, with no
+error raised. A dispatcher then routes on whatever the prose happened to quote. Inline
+single backticks are fine and expected; `file:line` citations are the house style.
+
 ## The inflation failure mode
 
 **An assessor asked to judge difficulty will inflate it unless explicitly told not to.**

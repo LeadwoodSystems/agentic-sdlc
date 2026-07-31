@@ -86,9 +86,13 @@ function assertSafePayload(serialized, assessment) {
       'Execution profile must not contain the asdlc:execution-profile marker text — this would corrupt the block on a future update.',
     );
   }
-  if (serialized.includes(FENCE)) {
+  // Checked against the assessment too, not just the payload: the prose is
+  // emitted above the JSON fence inside the same marker span, so a fence there
+  // makes parseProfile match the prose's block instead of the profile's and
+  // return a decoy object with no error raised.
+  if (haystack.includes(FENCE)) {
     throw new Error(
-      'Execution profile must not contain a ``` code fence — this would terminate the JSON fence early.',
+      'Execution profile and its assessment must not contain a ``` code fence — this would terminate the JSON fence early, or shadow it with an earlier one.',
     );
   }
 }

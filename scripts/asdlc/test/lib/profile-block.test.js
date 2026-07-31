@@ -132,6 +132,32 @@ test('upsertProfile rejects a payload containing a code fence', () => {
   assert.throws(() => upsertProfile(BODY_LF, hostile), /fence/i);
 });
 
+// The assessment is long-form markdown written by an assessor, so it is far
+// likelier to quote a fenced snippet than the payload is. Because the prose is
+// emitted above the JSON fence inside the same marker span, an unguarded fence
+// there makes parseProfile return the FIRST ```json block it finds — the decoy
+// from the prose, not the profile. Silently: no throw, no parse error, and a
+// dispatcher routes on fabricated data. Found while profiling GAW's v0.13
+// backlog, where every assessment cites files and quotes config.
+test('upsertProfile rejects an ASSESSMENT containing a code fence', () => {
+  const fence = '`'.repeat(3);
+  const hostile = [
+    'The policy file shows:',
+    `${fence}json`,
+    '{"decoy": true}',
+    fence,
+    'So routing is settled.',
+  ].join('\n');
+  assert.throws(() => upsertProfile(BODY_LF, PROFILE, { assessment: hostile }), /fence/i);
+});
+
+test('upsertProfile allows inline backticks in an assessment', () => {
+  // `file:line` citations are the house style — only the triple fence is unsafe.
+  const assessment = 'Blast radius is one function (`gh-hygiene.js:45`), no ``adjacent`` coupling.';
+  const result = upsertProfile(BODY_LF, PROFILE, { assessment });
+  assert.deepEqual(parseProfile(result).profile, PROFILE);
+});
+
 test('upsertProfile places assessment prose above the fence', () => {
   const result = upsertProfile(BODY_LF, PROFILE, {
     assessment: 'Touches one file; no hidden coupling found (`scripts/asdlc/gh-hygiene.js:45`).',
