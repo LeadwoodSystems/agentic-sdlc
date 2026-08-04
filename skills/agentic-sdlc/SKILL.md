@@ -11,6 +11,13 @@ or history. Core principle: **keep persistent context thin, push history to disk
 every sprint resume-ready from a written handoff.** Proven across 100+ sprints on one
 product. This skill orchestrates existing `superpowers` skills — it does not replace them.
 
+> Script names below (`checkpoint-hooks.js`, `new-sprint.js`, `finish-sprint.js`,
+> `archive-sprint-docs.js`, `gh-hygiene.js`) are the plugin's reference implementation.
+> A project may ship a ported equivalent instead — e.g. GAW's Windows build uses
+> PowerShell (`scripts/asdlc/checkpoint-hooks.ps1`, `new-sprint.ps1`, `finish-sprint.ps1`,
+> `archive-sprint-docs.ps1`, `gh-hygiene.ps1`). Check `scripts/asdlc/README.md` for the
+> actual filenames in use before running one that doesn't exist.
+
 Two rules make it work:
 1. **Thin persistent context.** The repo's `CLAUDE.md` holds ONLY durable rules +
    architecture (target <200 lines). Running history lives in `docs/STATUS.md`; the
@@ -25,6 +32,9 @@ Two rules make it work:
    been touched since filed** → `/verify-issue [id]` first. Adversarially checks the
    issue's claims against the current codebase before it becomes a plan, so the plan
    isn't built against a stale premise. Skip for small, self-evidently-current fixes.
+   Then `/profile-issue [id]` to decide *how* to execute it — the two are complementary:
+   `/verify-issue` asks "is this issue still true?", `/profile-issue` asks "what's the
+   cheapest resource that can reliably do it?".
 1. **Plan first** → `docs/superpowers/plans/`. REQUIRED SUB-SKILL: superpowers:brainstorming, then superpowers:writing-plans.
 2. **Build test-first.** REQUIRED SUB-SKILL: superpowers:test-driven-development.
 3. **Verify with real evidence** (commands run, live output, test counts — not assertions). REQUIRED SUB-SKILL: superpowers:verification-before-completion.
@@ -38,6 +48,12 @@ Two rules make it work:
   codebase before it becomes a plan (research → draft → independent fact-check →
   correct → push with the tracker's own sequencing conventions). See
   `references/issue-verification-methodology.md`.
+- `/profile-issue [id]` — assess a tracked issue and attach an **ASDLC Execution
+  Profile**: complexity, risk, blast radius, and the cheapest execution class that can
+  reliably do each phase (plan / build / verify / review). Records the *class*, never a
+  model name — the model resolves from `.asdlc/policy/execution-classes.yaml`, so a
+  model-lineup change is a one-line config edit rather than a backlog relabel. See
+  `references/execution-profiles.md`.
 - `/sprint [name]` — start a sprint: run the `new-sprint.js` gate, scaffold its plan, kick off brainstorm→plan.
 - `/checkpoint` — non-blocking gate: targeted tests (<=3min) + handoff-exists + STATUS/pointer script, then stage.
 - `/handoff` — generate the handoff doc from the template.
@@ -53,6 +69,9 @@ Two rules make it work:
 - Naming for both plans and handoffs: `vMAJOR.MINOR-sN-<slug>.md`. When a milestone
   closes, run `scripts/asdlc/archive-sprint-docs.js <milestone>` to keep the live
   directories from growing unbounded.
+- `.asdlc/policy/execution-classes.yaml` — the execution-class → model mapping and
+  default phase routing. Human/agent-read only; no script parses it (which is why it can
+  be YAML while the machine-readable execution profiles are JSON).
 - Per-project specifics (stack, gotchas, domain recipes) → `CLAUDE.md` + path-scoped
   `.claude/rules/*.md` (loads only when touching matching files).
 

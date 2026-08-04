@@ -7,6 +7,12 @@
 > File name: `docs/handoffs/vMAJOR.MINOR-sN-<slug>.md` — matching the plan's slug lets
 > `scripts/asdlc/new-sprint.js`'s gate detect a plan/handoff pair automatically.
 
+> **Light-trim discipline:** cite test counts + CI link — never paste raw pytest/CI
+> stdout or per-test timings. Link issues/PRs by number (`#123`), not full URL prose.
+> Target ~120 lines; if it's running longer, move detail to the linked plan/PR and
+> leave a pointer here. The test is still "could a fresh session resume from this
+> alone" — trim padding, not substance.
+
 ## Goal
 <One sentence from the plan — what this sprint set out to do.>
 
@@ -18,10 +24,13 @@
 # exact commands a fresh engineer runs to see it working
 ```
 
-## Acceptance criteria → evidence
+## Verification
+<One line per tier, cited not pasted, e.g.:>
+`fast: NNN passed · smoke: NN passed · CI deep: green (SHA <short-sha>)`
+
 | Criterion | Result | Evidence |
 |---|---|---|
-| <criterion> | ✅ / ❌ | <command output / file ref / test count> |
+| <criterion> | ✅ / ❌ | <test count / file ref / PR#link — not pasted output> |
 
 ## Key decisions & trade-offs
 - <decision — why>

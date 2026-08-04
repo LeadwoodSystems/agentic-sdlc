@@ -42,6 +42,21 @@ function checkDefaultBranch(cwd, declaredTrunk, { runner = run } = {}) {
   return { ok: actual === declaredTrunk, actual };
 }
 
+// An issue carries an Execution Profile once it has one label from each of the
+// three routing axes. Deliberately checked by prefix rather than by exact value,
+// so adding a new bucket (e.g. `complexity/trivial`) doesn't require touching
+// this audit. The concrete model is NOT a label — it resolves from the class via
+// .asdlc/policy/execution-classes.yaml, so it can be re-pointed in one place when
+// the model lineup turns over.
+const PROFILE_LABEL_PREFIXES = ['complexity/', 'risk/', 'execution/'];
+
+function hasProfileLabels(labels) {
+  const names = (labels || []).map((label) => label.name || '');
+  return PROFILE_LABEL_PREFIXES.every(
+    (prefix) => names.some((name) => name.startsWith(prefix)),
+  );
+}
+
 function findUntriagedIssues(cwd, { runner = run } = {}) {
   const out = runner(
     'gh',
@@ -56,6 +71,12 @@ function findUntriagedIssues(cwd, { runner = run } = {}) {
     }
     if (!issue.milestone) {
       findings.push({ number: issue.number, reason: 'no-milestone' });
+    }
+    // Reported independently of 'no-labels' (rather than skipped as redundant
+    // for a bare issue) so that filtering the audit by this one reason yields
+    // the complete "needs /profile-issue" worklist.
+    if (!hasProfileLabels(issue.labels)) {
+      findings.push({ number: issue.number, reason: 'no-execution-profile' });
     }
   }
   return findings;
@@ -153,6 +174,7 @@ function main() {
 }
 
 module.exports = {
+  PROFILE_LABEL_PREFIXES,
   findStaleBranches,
   checkDefaultBranch,
   findUntriagedIssues,

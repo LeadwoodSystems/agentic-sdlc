@@ -26,9 +26,14 @@ Then scaffold (create only what's missing), using the `agentic-sdlc` skill's tem
 5. **`.gitignore`** — ensure test/coverage artifacts are ignored if the stack warrants it.
 6. **`scripts/asdlc/*.js`** — copy the plugin's hygiene/bookkeeping scripts
    (`new-sprint.js`, `checkpoint-hooks.js`, `finish-sprint.js`, `gh-hygiene.js`,
-   `archive-sprint-docs.js`, and `lib/exec.js`) into the repo (skip any that already
-   exist). These require only Node on PATH — no `npm install` step.
-7. Optionally, **`.claude/rules/`** — suggest path-scoped rule files for any procedural
+   `archive-sprint-docs.js`, and `lib/exec.js`, `lib/profile-block.js`) into the repo
+   (skip any that already exist). These require only Node on PATH — no `npm install` step.
+7. **`.asdlc/policy/execution-classes.yaml`** — the execution-class → model mapping and
+   default phase routing used by `/profile-issue`. Copy the plugin's copy as a starting
+   point and re-point the `model:` values at whatever the project actually uses; the
+   classes themselves (`fast`/`standard`/`deep`/`deterministic`) don't change. Nothing
+   parses this file — it's read by the agent, so keep it readable rather than terse.
+8. Optionally, **`.claude/rules/`** — suggest path-scoped rule files for any procedural
    recipes (adding a command/connector/migration) that only matter when editing certain
    paths, so they don't sit in `CLAUDE.md` all session.
 

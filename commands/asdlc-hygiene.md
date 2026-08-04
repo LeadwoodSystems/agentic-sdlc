@@ -26,4 +26,6 @@ which check(s) could not run and why, rather than treating it as a hard failure.
 For any finding, suggest — but do not run without confirmation — the fix:
 `git push origin --delete <branch>` for stale branches, `gh api repos/{owner}/{repo}
 -X PATCH -f default_branch=<trunk>` for a default-branch mismatch, `gh issue edit <n>
---add-label <label>` / `--milestone <name>` for untriaged issues.
+--add-label <label>` / `--milestone <name>` for untriaged issues, and `/profile-issue <n>`
+for any issue reported as `no-execution-profile` (missing one of the `complexity/`,
+`risk/`, `execution/` routing labels).
