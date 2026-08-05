@@ -18,7 +18,7 @@ bug in the skeleton — fix it there first.
 
 ## Where the build is
 <!-- asdlc:current-state:auto -->
-**Current state:** mutate.js: manifest-driven mutation runs with EOL-preserving anchors, revert verification and a not-evidence exit code, plus the test-mutation-evidence reference and /checkpoint hook — see [handoff](docs/handoffs/v0.2-s3-mutation-tooling.md)
+**Current state:** bootstrap derives its script set instead of enumerating it (the stale list is why consumers never got mutate.js), gh-hygiene gains a sixth check for failing scheduled workflows, plan-template gains the test-tier and regression-sweep riders — see [handoff](docs/handoffs/v0.2-s4-bootstrap-derivation-and-riders.md)
 <!-- /asdlc:current-state:auto -->
 
 To resume, read the **latest** `docs/handoffs/` file (single source of truth). Full
