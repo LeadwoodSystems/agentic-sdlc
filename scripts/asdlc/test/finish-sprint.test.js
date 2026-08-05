@@ -8,6 +8,7 @@ const { makeFixtureRepo } = require('./helpers/fixture-repo');
 const {
   markMerged,
   deleteBranch,
+  resolveSprintBranch,
   removeWorktreeForBranch,
   checkMilestone,
   main,
@@ -33,9 +34,13 @@ const PORCELAIN = [
 
 // Stub runner for the worktree path. `calls` collects `git <args…>` strings in
 // invocation order, which is how the ordering assertions below are made.
-function makeWorktreeStub({ calls, porcelain = PORCELAIN, statusOutput = '' }) {
+function makeWorktreeStub({ calls, porcelain = PORCELAIN, statusOutput = '', branches = 'sprint/v0.1-s1' }) {
   return (cmd, args, opts = {}) => {
     calls.push([cmd, ...args].join(' '));
+    // main() resolves the sprint branch before touching anything (see
+    // resolveSprintBranch), so the stub must answer for-each-ref or every main()
+    // test bails out early with "no branch named …".
+    if (cmd === 'git' && args[0] === 'for-each-ref') return branches;
     if (cmd === 'git' && args[0] === 'worktree' && args[1] === 'list') return porcelain;
     if (cmd === 'git' && args[0] === 'status') {
       // `git status --porcelain` is answered per-worktree: only the sprint
@@ -46,6 +51,69 @@ function makeWorktreeStub({ calls, porcelain = PORCELAIN, statusOutput = '' }) {
     return '';
   };
 }
+
+// resolveSprintBranch exists because `sprint/${sprintId}` is an ASSUMPTION, not a
+// guarantee. Observed live on 2026-08-05: `finish-sprint.js v0.2-s1 <sha>` looked for
+// `sprint/v0.2-s1` while the real branch was `sprint/v0.2-s1-execution-profiles`, so it
+// rewrote STATUS.md and *then* died with a raw stack trace — leaving the operation
+// half-done and non-idempotent, because the re-run fails in markMerged.
+test('resolveSprintBranch prefers an exact sprint/<id> match', () => {
+  const branches = ['sprint/v0.2-s1', 'sprint/v0.2-s1-execution-profiles'];
+  const runner = () => branches.join('\n');
+  assert.equal(resolveSprintBranch('.', 'v0.2-s1', { runner }).branch, 'sprint/v0.2-s1');
+});
+
+test('resolveSprintBranch finds the slugged branch when no exact match exists', () => {
+  const runner = () => 'sprint/v0.2-s1-execution-profiles\nsprint/v0.2-s2';
+  const resolved = resolveSprintBranch('.', 'v0.2-s1', { runner });
+  assert.equal(resolved.branch, 'sprint/v0.2-s1-execution-profiles');
+});
+
+test('resolveSprintBranch does not confuse v0.2-s1 with v0.2-s10', () => {
+  const runner = () => 'sprint/v0.2-s10-something';
+  const resolved = resolveSprintBranch('.', 'v0.2-s1', { runner });
+  assert.equal(resolved.branch, null);
+  assert.equal(resolved.reason, 'not-found');
+});
+
+test('resolveSprintBranch refuses to guess between several slugged candidates', () => {
+  const runner = () => 'sprint/v0.2-s1-one\nsprint/v0.2-s1-two';
+  const resolved = resolveSprintBranch('.', 'v0.2-s1', { runner });
+  assert.equal(resolved.branch, null);
+  assert.equal(resolved.reason, 'ambiguous');
+  assert.deepEqual(resolved.candidates, ['sprint/v0.2-s1-one', 'sprint/v0.2-s1-two']);
+});
+
+test('main refuses BEFORE touching STATUS.md when the branch cannot be resolved', async () => {
+  const { dir, cleanup } = await makeFixtureRepo();
+  try {
+    const statusPath = path.join(dir, 'docs/STATUS.md');
+    fs.mkdirSync(path.dirname(statusPath), { recursive: true });
+    fs.writeFileSync(statusPath, '- 2026-08-05 **v9.9-s1** — x — [h](h.md) — status: awaiting-merge\n');
+    const before = fs.readFileSync(statusPath, 'utf8');
+
+    const cwd = process.cwd();
+    process.chdir(dir);
+    const errors = [];
+    const origError = console.error;
+    console.error = (m) => errors.push(String(m));
+    const origExitCode = process.exitCode;
+    try {
+      // No branch matches, so nothing may be mutated.
+      main(['v9.9-s1', 'abc1234'], { runner: () => '' });
+    } finally {
+      console.error = origError;
+      process.chdir(cwd);
+    }
+
+    assert.equal(fs.readFileSync(statusPath, 'utf8'), before, 'STATUS.md must be untouched');
+    assert.match(errors.join('\n'), /v9\.9-s1/);
+    assert.equal(process.exitCode, 1);
+    process.exitCode = origExitCode;
+  } finally {
+    await cleanup();
+  }
+});
 
 test('markMerged flips only the matching line', async () => {
   const { dir, cleanup } = await makeFixtureRepo();

@@ -3,6 +3,46 @@ const path = require('node:path');
 const { run } = require('./lib/exec');
 
 /**
+ * resolveSprintBranch(cwd, sprintId, { runner = run } = {})
+ * -> { branch: string|null, reason?: 'not-found'|'ambiguous', candidates?: string[] }
+ *
+ * `sprint/${sprintId}` is an ASSUMPTION, not a guarantee. `new-sprint.js` creates
+ * branches as `sprint/<sprintId>` and plan/handoff FILES as `<sprintId>-<slug>.md`, so
+ * the two schemes differ by a slug — and a branch created by hand (or by an older
+ * version) commonly carries the slug too.
+ *
+ * Observed live on 2026-08-05: `finish-sprint.js v0.2-s1 <sha>` looked for
+ * `sprint/v0.2-s1` while the real branch was `sprint/v0.2-s1-execution-profiles`. It
+ * had already rewritten STATUS.md by then, so it died with a raw stack trace leaving
+ * the operation half-done — and non-idempotent, because the re-run fails in markMerged
+ * with "no awaiting-merge entry found". Resolving the branch BEFORE any mutation is
+ * what makes the failure recoverable.
+ *
+ * Matching is exact-first, then `sprint/<id>-*` with the hyphen REQUIRED — a bare
+ * prefix test would match `sprint/v0.2-s10-x` when asked for `v0.2-s1`. Several
+ * candidates is reported rather than guessed: deleting the wrong sprint branch is not
+ * a recoverable mistake.
+ */
+function resolveSprintBranch(cwd, sprintId, { runner = run } = {}) {
+  const branches = runner(
+    'git',
+    ['for-each-ref', 'refs/heads/sprint/*', '--format=%(refname:short)'],
+    { cwd },
+  )
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean);
+
+  const exact = `sprint/${sprintId}`;
+  if (branches.includes(exact)) return { branch: exact };
+
+  const candidates = branches.filter((b) => b.startsWith(`${exact}-`));
+  if (candidates.length === 1) return { branch: candidates[0] };
+  if (candidates.length > 1) return { branch: null, reason: 'ambiguous', candidates };
+  return { branch: null, reason: 'not-found' };
+}
+
+/**
  * markMerged(cwd, sprintId, sha)
  * Finds the STATUS.md line containing `**${sprintId}**` and `status: awaiting-merge`,
  * and rewrites just that line's trailing status to `status: merged (${sha})`.
@@ -217,7 +257,25 @@ function main(argv = process.argv.slice(2), { runner = run } = {}) {
     process.exit(1);
   }
   const cwd = process.cwd();
-  const branchName = `sprint/${sprintId}`;
+
+  // Resolve the branch FIRST, before markMerged or any removal. An unresolvable
+  // branch must leave the repo completely untouched, for the same reason the dirty
+  // worktree check runs early: a half-applied finish is worse than a refused one,
+  // because markMerged is not idempotent.
+  const resolved = resolveSprintBranch(cwd, sprintId, { runner });
+  if (!resolved.branch) {
+    if (resolved.reason === 'ambiguous') {
+      console.error(`Cannot finish ${sprintId}: several branches could be it —`);
+      for (const candidate of resolved.candidates) console.error(`    ${candidate}`);
+      console.error('Delete the ones that are not this sprint, or finish them first.');
+    } else {
+      console.error(`Cannot finish ${sprintId}: no branch named sprint/${sprintId} or sprint/${sprintId}-<slug>.`);
+      console.error('Nothing was changed. Check the sprint id against `git branch --list "sprint/*"`.');
+    }
+    process.exitCode = 1;
+    return;
+  }
+  const branchName = resolved.branch;
 
   const worktree = removeWorktreeForBranch(cwd, branchName, { force, runner });
   if (worktree.removed) {
@@ -258,6 +316,7 @@ function main(argv = process.argv.slice(2), { runner = run } = {}) {
 module.exports = {
   markMerged,
   deleteBranch,
+  resolveSprintBranch,
   parseWorktrees,
   removeWorktreeForBranch,
   checkMilestone,
