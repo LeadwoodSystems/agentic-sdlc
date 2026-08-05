@@ -24,8 +24,20 @@ enumerate every file.>
 2. [ ] <task>
 3. [ ] <task>
 
+> Don't run a cross-module regression sweep until every module in the diff is internally
+> consistent. Mid-refactor, run only the tests for the modules you have finished. Measured
+> cost of ignoring this: 4m30s and ~2k tokens of output for 37 predicted `AttributeError`s,
+> after a rename in task 3 whose consumer update was task 4's job.
+
 ## Test plan (TDD — write these first)
 - <failing test → behavior it pins down>
+
+> Name the tier each test runs in when it will be cited as mutation evidence. The first test
+> of a behaviour should exercise the real stack; the shape variants around it usually need
+> not. Mutation cost is dominated by test *bootstrap*, not test body, and the mutation loop
+> pays it once per run — measured in this repo, two library mutations cost 0.2s each while
+> one targeting a test that builds real git fixture repos cost 16.7s, ~80×. See
+> `test-mutation-evidence.md`.
 
 ## Verification (evidence to capture for the handoff)
 - <command to run + expected observable result>
