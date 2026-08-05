@@ -81,6 +81,26 @@ test('the summary line reports reverts clean only when they were', () => {
   assert.doesNotMatch(renderText(dirty), /Reverts verified clean/);
 });
 
+test('ANCHOR-OK is not flagged as needing action', () => {
+  // The `!!` marker means "you must act on this". A verified anchor in a dry
+  // run is the expected outcome, and marking it dilutes the signal on the
+  // lines that do need a decision.
+  const ok = [{ id: 'A', verdict: 'ANCHOR-OK', durationMs: 0, expectRed: 'x' }];
+  assert.doesNotMatch(renderText(ok), /!!/);
+});
+
+test('a dry run does not claim reverts were verified', () => {
+  // Nothing was written, so nothing was reverted. Claiming otherwise is the
+  // exact species of unearned reassurance this tool exists to remove.
+  const dry = [{ id: 'A', verdict: 'ANCHOR-OK', durationMs: 0, expectRed: 'x' }];
+  assert.doesNotMatch(renderText(dry), /Reverts verified clean/);
+});
+
+test('a run where every anchor missed does not claim reverts were verified', () => {
+  const missed = [{ id: 'A', verdict: 'ANCHOR-MISS', durationMs: 0, expectRed: 'x' }];
+  assert.doesNotMatch(renderText(missed), /Reverts verified clean/);
+});
+
 test('renderMarkdown emits a paste-ready table with a header row', () => {
   const md = renderMarkdown(RESULTS);
   assert.match(md, /^\| id \| label \| verdict \| evidence \|$/m);

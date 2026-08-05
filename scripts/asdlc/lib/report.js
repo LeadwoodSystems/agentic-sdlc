@@ -30,6 +30,20 @@ const VERDICT_ORDER = [
 // trustworthy.
 const NOT_EVIDENCE = new Set(['ANCHOR-MISS', 'AMBIGUOUS-ANCHOR', 'NO-OP', 'DIRTY-REVERT']);
 
+// The verdicts that mean a test command actually ran, and therefore that a file
+// was written and reverted. Used to keep the summary from reporting "reverts
+// verified clean" after a dry run, where nothing was written in the first
+// place. Unearned reassurance is the species of wrongness this tool exists to
+// remove, so it must not emit any of its own.
+const EXECUTED = new Set(['RED-AS-PREDICTED', 'RED-WRONG-REASON', 'GREEN']);
+
+// `!!` means "you must act on this". A verified anchor in a dry run is the
+// expected outcome; marking it would dilute the signal on the lines that do
+// need a decision.
+function needsAction(verdict) {
+  return verdict !== 'RED-AS-PREDICTED' && verdict !== 'ANCHOR-OK';
+}
+
 const EVIDENCE_TEXT = {
   'RED-WRONG-REASON': 'failed, but not for the predicted reason — discard this mutation.',
   GREEN: 'no failure — the test is HOLLOW or the mutation is INERT. Decide and record which.',
@@ -70,9 +84,12 @@ function summaryLine(results) {
     .map((verdict) => `${counts[verdict]} ${verdict}`);
   const noun = results.length === 1 ? 'mutation' : 'mutations';
   const breakdown = parts.length > 0 ? `: ${parts.join(', ')}` : '';
-  const reverts = results.some((r) => r.verdict === 'DIRTY-REVERT')
-    ? '  REVERT FAILED — the working tree was left modified.'
-    : '  Reverts verified clean.';
+  let reverts = '';
+  if (results.some((r) => r.verdict === 'DIRTY-REVERT')) {
+    reverts = '  REVERT FAILED — the working tree was left modified.';
+  } else if (results.some((r) => EXECUTED.has(r.verdict))) {
+    reverts = '  Reverts verified clean.';
+  }
   return `${results.length} ${noun}${breakdown}.${reverts}`;
 }
 
@@ -85,7 +102,7 @@ function renderText(results) {
     if (evidence) {
       // The bang marks the entries a reader must act on, so a long run's
       // GREENs and misses do not scroll past looking like the RED lines.
-      const marker = result.verdict === 'RED-AS-PREDICTED' ? '     ' : '     !! ';
+      const marker = needsAction(result.verdict) ? '     !! ' : '     ';
       lines.push(`${marker}${evidence}`);
     }
   }
