@@ -12,6 +12,31 @@
 hand-sync the same status into `CLAUDE.md` + memory + a handoff; that drifts (the classic
 symptom: the test count in `CLAUDE.md` disagrees with reality).
 
+## The unit of concurrency is the worktree, not the session
+
+A worktree is a second working tree with **its own HEAD**. A branch can be checked out in
+exactly one tree at a time. **The safe unit of concurrency is the worktree, not the
+session** — two sessions in one directory will fight over HEAD; two sessions in two
+worktrees cannot.
+
+So: **one sprint = one worktree = one session.** The three tiers above say where state
+lives; this says who is allowed to touch it at once. Parallelism comes from adding
+worktrees, never from adding sessions to a directory.
+
+The scripts enforce the lifecycle, so it does not depend on anyone remembering it:
+
+| Script | Its part of the contract |
+|---|---|
+| `finish-sprint.js` | removes the sprint's worktree, **then** deletes the branch — that order is forced, git refuses to delete a branch checked out in another tree. Refuses on a dirty worktree unless `--force`. |
+| `new-sprint.js` | `checkGate` blocks with `stale-worktree` before it checks anything else, because a leftover worktree is a resource the new sprint would collide with. |
+| `gh-hygiene.js` | `findStaleWorktrees` audits every linked worktree for a merged branch, uncommitted changes, age, or a missing directory. |
+
+**Why this is a script's job and not a rule in prose:** a 1.15 GB orphan worktree survived
+a week in the GAW repo holding 14 uncommitted files — invisible to every check that
+existed. The branch check saw nothing stale (the branch *was* checked out), the issue
+checks had no reason to look, and `git status` in the main tree reports only the main
+tree. Nothing was broken; nothing was watching.
+
 ## The "would removing this cause a mistake?" test
 Every line in `CLAUDE.md` must pass it. History fails it — history is not instruction.
 Move anything that fails to `STATUS.md` or a handoff.
@@ -23,6 +48,15 @@ fix it by re-running the script that owns it, not by typing into the file — ha
 is exactly how this file grew into an unmaintainable, out-of-order wall of narrative in
 real usage. Each entry is one line: date, sprint id, one-line summary, a link to the
 handoff, and a status field.
+
+## Numbers in `CLAUDE.md` are measured, never typed
+Test counts, timings and ports rot the moment they are asserted by prose. Declare each in
+`.asdlc/facts.json` as a command to run, and let `scripts/asdlc/facts.js` own the
+`<!-- asdlc:facts:auto -->` span — same treatment as the current-state pointer and
+`STATUS.md`. A command that fails writes `**UNMEASURED**` with the reason; it never leaves
+the previous number in place, because a stale number that *looks* freshly measured is
+worse than no automation. `scripts/asdlc/asdlc-lint.js` fails the build when the block is
+absent or stale.
 
 ## Naming and archival
 Plans and handoffs share a canonical naming scheme: `vMAJOR.MINOR-sN-<slug>.md`. `new-sprint.js`

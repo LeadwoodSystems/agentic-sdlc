@@ -1,0 +1,19 @@
+{
+  "schema": "asdlc-facts/v1",
+  "facts": [
+    {
+      "label": "asdlc unit tests",
+      "command": ["node", "--test", "scripts/asdlc/test/**/*.test.js"],
+      "capture": "tests (\\d+)"
+    },
+    {
+      "label": "asdlc unit tests passing",
+      "command": ["node", "--test", "scripts/asdlc/test/**/*.test.js"],
+      "capture": "pass (\\d+)"
+    },
+    {
+      "label": "node",
+      "command": ["node", "--version"]
+    }
+  ]
+}

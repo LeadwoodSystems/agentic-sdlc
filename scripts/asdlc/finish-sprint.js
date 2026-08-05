@@ -79,6 +79,83 @@ function deleteBranch(cwd, branchName, { runner = run } = {}) {
 }
 
 /**
+ * parseWorktrees(porcelain)
+ * Turns `git worktree list --porcelain` output into
+ * [{ path, branch: string|null }, …], in git's own order — which matters,
+ * because git always emits the MAIN worktree first and that is the only way
+ * the porcelain format identifies it.
+ *
+ * Records are separated by blank lines and each begins with a `worktree <path>`
+ * line; a `branch <ref>` line follows only when the worktree has one checked
+ * out (a detached worktree emits `detached` instead). Parsed line-by-line
+ * rather than by splitting on blank lines so that CRLF-terminated output and a
+ * missing trailing blank line are both non-issues. Paths arrive with forward
+ * slashes even on Windows, and are passed back to git verbatim.
+ */
+function parseWorktrees(porcelain) {
+  const entries = [];
+  for (const rawLine of porcelain.split('\n')) {
+    const line = rawLine.trim();
+    if (line.startsWith('worktree ')) {
+      entries.push({ path: line.slice('worktree '.length), branch: null });
+    } else if (line.startsWith('branch ') && entries.length > 0) {
+      entries[entries.length - 1].branch = line.slice('branch '.length);
+    }
+  }
+  return entries;
+}
+
+/**
+ * removeWorktreeForBranch(cwd, branchName, { force = false, runner = run } = {})
+ * Removes the linked worktree that has `branchName` checked out, if there is one.
+ *
+ * WHY THIS EXISTS: before it, finish-sprint.js cleaned up the branch and left
+ * the worktree behind forever. One such orphan survived a week at 1.15 GB,
+ * holding 14 uncommitted files nobody could see.
+ *
+ * The precondition is deleteBranch's (see its SQUASH-MERGE HANDLING note): the
+ * caller has already confirmed the sprint's PR merged, so the *committed* work
+ * is safely in trunk. That is what makes discarding the worktree safe — but it
+ * says nothing about work that was never committed, hence the dirty check.
+ *
+ * Returns a reportable result rather than throwing on the expected outcomes, so
+ * main() can print a specific diagnostic instead of a stack trace:
+ *   { removed: true,  forced, path }
+ *   { removed: false, reason: 'no-worktree' }
+ *   { removed: false, reason: 'main-worktree', path }
+ *   { removed: false, reason: 'dirty', path, changes: [...] }
+ * A failure of git itself still propagates.
+ */
+function removeWorktreeForBranch(cwd, branchName, { force = false, runner = run } = {}) {
+  const entries = parseWorktrees(runner('git', ['worktree', 'list', '--porcelain'], { cwd }));
+  const index = entries.findIndex((e) => e.branch === `refs/heads/${branchName}`);
+  if (index === -1) return { removed: false, reason: 'no-worktree' };
+
+  const target = entries[index];
+  // The main worktree is git's first record. `git worktree remove` refuses it
+  // outright, so this guard exists to turn an opaque git error into a named
+  // result — and it holds under --force, where git's own refusal does not.
+  if (index === 0) return { removed: false, reason: 'main-worktree', path: target.path };
+
+  // Status is per-worktree, so it must be asked of the worktree's own directory,
+  // not of `cwd`.
+  const changes = runner('git', ['status', '--porcelain'], { cwd: target.path })
+    .split('\n')
+    .map((l) => l.trimEnd())
+    .filter(Boolean);
+
+  // Report the changes rather than just their count: an operator deciding
+  // whether to pass --force is deciding what to destroy, and needs to see it.
+  if (changes.length > 0 && !force) {
+    return { removed: false, reason: 'dirty', path: target.path, changes };
+  }
+
+  const args = force ? ['worktree', 'remove', '--force', target.path] : ['worktree', 'remove', target.path];
+  runner('git', args, { cwd });
+  return { removed: true, forced: force, path: target.path };
+}
+
+/**
  * checkMilestone(cwd, issueNumbers, { runner = run } = {})
  * For each issue number, runs `gh issue view <n> --json milestone` and returns
  * an array of { issue, milestone: string|null, error?: string }.
@@ -103,7 +180,7 @@ function checkMilestone(cwd, issueNumbers, { runner = run } = {}) {
 
 /**
  * main(argv = process.argv.slice(2), { runner = run } = {})
- * CLI entry point: node finish-sprint.js <sprint-id> <sha> [issue-numbers...]
+ * CLI entry point: node finish-sprint.js [--force] <sprint-id> <sha> [issue-numbers...]
  *
  * Accepts its arguments explicitly (rather than reading process.argv directly)
  * and an injectable `runner`, so it can be invoked directly from tests against
@@ -111,9 +188,20 @@ function checkMilestone(cwd, issueNumbers, { runner = run } = {}) {
  *
  * Steps:
  * 1. Validate args (sprint-id, sha required)
- * 2. Call markMerged(cwd, sprintId, sha) — update docs/STATUS.md
- * 3. Call deleteBranch(cwd, `sprint/${sprintId}`) — clean up sprint branch
- * 4. If issue numbers provided, call checkMilestone and report missing milestones
+ * 2. Call removeWorktreeForBranch(cwd, `sprint/${sprintId}`) — retire the worktree
+ * 3. Call markMerged(cwd, sprintId, sha) — update docs/STATUS.md
+ * 4. Call deleteBranch(cwd, `sprint/${sprintId}`) — clean up sprint branch
+ * 5. If issue numbers provided, call checkMilestone and report missing milestones
+ *
+ * ORDER: the worktree must go before the branch — git refuses to delete a
+ * branch that is checked out in another worktree, so the reverse order fails
+ * outright. It also runs before markMerged, one step earlier than strictly
+ * required, so that a refusal on a dirty worktree leaves the repo completely
+ * untouched: had STATUS.md already been rewritten, the re-run after --force
+ * would die in markMerged with "no awaiting-merge entry found".
+ *
+ * `--force` is accepted anywhere in argv and stripped before positional
+ * parsing, so it can be typed in the natural leading position.
  *
  * The milestone check is advisory and wrapped in error handling so that
  * a failure to fetch milestone data (bad issue number, auth failure, network blip)
@@ -122,18 +210,37 @@ function checkMilestone(cwd, issueNumbers, { runner = run } = {}) {
  * with non-zero status.
  */
 function main(argv = process.argv.slice(2), { runner = run } = {}) {
-  const [sprintId, sha, ...issueArgs] = argv;
+  const force = argv.includes('--force');
+  const [sprintId, sha, ...issueArgs] = argv.filter((a) => a !== '--force');
   if (!sprintId || !sha) {
-    console.error('Usage: node finish-sprint.js <sprint-id> <sha> [issue-numbers...]');
+    console.error('Usage: node finish-sprint.js [--force] <sprint-id> <sha> [issue-numbers...]');
     process.exit(1);
   }
   const cwd = process.cwd();
+  const branchName = `sprint/${sprintId}`;
+
+  const worktree = removeWorktreeForBranch(cwd, branchName, { force, runner });
+  if (worktree.removed) {
+    console.log(`Removed worktree ${worktree.path}${worktree.forced ? ' (forced)' : ''}.`);
+  } else if (worktree.reason === 'dirty') {
+    console.error(`Refusing to remove the worktree for ${branchName} — it has uncommitted changes:`);
+    console.error(`  ${worktree.path}`);
+    for (const change of worktree.changes) console.error(`    ${change}`);
+    console.error('Commit or discard them, or re-run with --force to destroy them.');
+    // Stop here rather than continuing: the branch is checked out in that
+    // worktree, so deleteBranch would fail anyway — and its git error would
+    // bury the file list above, which is the part the operator needs.
+    process.exitCode = 1;
+    return;
+  } else if (worktree.reason === 'main-worktree') {
+    console.warn(`${branchName} is checked out in the main worktree (${worktree.path}) — switch away before deleting it.`);
+  }
 
   markMerged(cwd, sprintId, sha);
   console.log(`Marked ${sprintId} as merged (${sha}) in docs/STATUS.md.`);
 
-  deleteBranch(cwd, `sprint/${sprintId}`, { runner });
-  console.log(`Deleted branch sprint/${sprintId} (local + remote if present).`);
+  deleteBranch(cwd, branchName, { runner });
+  console.log(`Deleted branch ${branchName} (local + remote if present).`);
 
   const issueNumbers = issueArgs.map(Number).filter((n) => !Number.isNaN(n));
   if (issueNumbers.length > 0) {
@@ -148,7 +255,14 @@ function main(argv = process.argv.slice(2), { runner = run } = {}) {
   }
 }
 
-module.exports = { markMerged, deleteBranch, checkMilestone, main };
+module.exports = {
+  markMerged,
+  deleteBranch,
+  parseWorktrees,
+  removeWorktreeForBranch,
+  checkMilestone,
+  main,
+};
 
 if (require.main === module) {
   main();

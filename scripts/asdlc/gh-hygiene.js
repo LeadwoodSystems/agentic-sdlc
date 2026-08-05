@@ -1,4 +1,6 @@
+const fs = require('node:fs');
 const { run } = require('./lib/exec');
+const { isBranchMerged } = require('./lib/branch-status');
 
 function findStaleBranches(cwd, { trunk = 'main', runner = run } = {}) {
   // Use git for-each-ref instead of git branch --list to avoid the `+` marker
@@ -14,10 +16,90 @@ function findStaleBranches(cwd, { trunk = 'main', runner = run } = {}) {
     .map((l) => l.trim())
     .filter(Boolean);
 
-  return branches.filter((branch) => {
-    const unmerged = runner('git', ['log', `${trunk}..${branch}`, '--oneline'], { cwd });
-    return unmerged.length === 0;
-  });
+  // The merged test used to be "`git log <trunk>..<branch>` is empty", which is
+  // blind to the squash-merge this plugin itself promotes (finish-sprint.js:31-49):
+  // the squashed commit on trunk is a different commit, so the branch's originals
+  // are never "in" trunk and the audit reported zero stale branches forever.
+  // Verified live 2026-08-04 — it printed `Stale merged branches: none` for a
+  // branch squash-merged minutes earlier. lib/branch-status.js holds the working
+  // strategies (and the reasons `git cherry` is not among them).
+  return branches.filter((branch) => isBranchMerged(cwd, branch, { trunk, runner }));
+}
+
+// One record per worktree in `git worktree list --porcelain`, records separated
+// by a blank line. Lines are `<key> <value>` (worktree, HEAD, branch) or a bare
+// keyword with no value (detached, bare, locked, prunable). Parsed generically
+// rather than by matching the three keys we care about, so an unknown keyword
+// from a newer git can never desynchronise the record boundaries.
+function parseWorktreeRecords(porcelain) {
+  const records = [];
+  let current = null;
+  for (const rawLine of porcelain.split('\n')) {
+    const line = rawLine.replace(/\r$/, '');
+    if (line.trim() === '') {
+      if (current) records.push(current);
+      current = null;
+      continue;
+    }
+    const sep = line.indexOf(' ');
+    const key = sep === -1 ? line : line.slice(0, sep);
+    const value = sep === -1 ? true : line.slice(sep + 1);
+    // A `worktree` line always opens a record; everything else attaches to the
+    // record already open.
+    if (key === 'worktree') current = { worktree: value };
+    else if (current) current[key] = value;
+  }
+  if (current) records.push(current);
+  return records;
+}
+
+// Worktrees are the ASDLC's unit of concurrency (one sprint = one worktree =
+// one session), and nothing audited them before: a 1.15 GB worktree was found
+// in the GAW repo, last written 2026-07-28, holding a branch with 14
+// uncommitted files — invisible to the branch check (the branch was checked
+// out, so nothing about it looked stale), to the issue checks, and to `git
+// status` in the main tree. Each of the three signals below is independently
+// actionable, so a worktree carries a list of reasons rather than one verdict.
+function findStaleWorktrees(cwd, { maxAgeDays = 14, trunk = 'main', runner = run } = {}) {
+  const records = parseWorktreeRecords(
+    runner('git', ['worktree', 'list', '--porcelain'], { cwd }),
+  );
+  const maxAgeMs = maxAgeDays * 24 * 60 * 60 * 1000;
+  const now = Date.now();
+  const findings = [];
+
+  // Skip record 0: git always emits the MAIN working tree first. Skipping by
+  // index rather than by comparing paths against `cwd` matters because the
+  // audit can legitimately be run from inside a linked worktree, where a path
+  // comparison would exempt that worktree and flag the main tree instead.
+  for (const record of records.slice(1)) {
+    const worktreePath = record.worktree;
+    const branch = typeof record.branch === 'string'
+      ? record.branch.replace(/^refs\/heads\//, '')
+      : null;
+    const reasons = [];
+
+    // A prunable worktree's directory is gone, so neither `git status` (which
+    // would spawn in a nonexistent cwd) nor the mtime read can run. Report it
+    // and move on instead of letting one dead record fail the whole check.
+    if (!fs.existsSync(worktreePath)) {
+      findings.push({ path: worktreePath, branch, reasons: ['missing-directory'] });
+      continue;
+    }
+
+    if (branch && isBranchMerged(cwd, branch, { trunk, runner })) {
+      reasons.push('branch-merged');
+    }
+    if (runner('git', ['status', '--porcelain'], { cwd: worktreePath }).length > 0) {
+      reasons.push('uncommitted-changes');
+    }
+    if (now - fs.statSync(worktreePath).mtimeMs > maxAgeMs) {
+      reasons.push(`older-than-${maxAgeDays}d`);
+    }
+
+    if (reasons.length > 0) findings.push({ path: worktreePath, branch, reasons });
+  }
+  return findings;
 }
 
 function checkDefaultBranch(cwd, declaredTrunk, { runner = run } = {}) {
@@ -103,8 +185,9 @@ function checkMilestoneVersionSync(cwd, currentSprintVersion, { runner = run } =
   return { inSync: milestoneVersions.includes(currentSprintVersion), milestoneVersions };
 }
 
-// runHygieneAudit aggregates four independent checks. Two (findStaleBranches,
-// checkDefaultBranch) only need local git and will succeed in any real repo.
+// runHygieneAudit aggregates five independent checks. Three (findStaleBranches,
+// findStaleWorktrees, checkDefaultBranch) only need local git and will succeed
+// in any real repo.
 // The other two (findUntriagedIssues, checkMilestoneVersionSync) shell out to
 // `gh` and depend on GitHub auth, network access, and a GitHub remote existing
 // — any of which can be missing/broken independently of the git-only checks.
@@ -121,7 +204,10 @@ function checkMilestoneVersionSync(cwd, currentSprintVersion, { runner = run } =
 // checks (not just the two gh-based ones) since even a "local-only" git check
 // can fail for reasons unrelated to the others (missing git binary, corrupted
 // .git, wrong cwd, etc.) and there is no reason a failure there should hide
-// results from checks that did succeed.
+// results from checks that did succeed. The worktree check is the newest
+// illustration: it reads the filesystem for every linked worktree, so a
+// permission error or a network drive that has gone away must not take the
+// branch and issue findings down with it.
 function safeCheck(fn) {
   try {
     return fn();
@@ -133,6 +219,7 @@ function safeCheck(fn) {
 function runHygieneAudit(cwd, { declaredTrunk, currentSprintVersion, runner = run } = {}) {
   return {
     staleBranches: safeCheck(() => findStaleBranches(cwd, { trunk: declaredTrunk, runner })),
+    staleWorktrees: safeCheck(() => findStaleWorktrees(cwd, { trunk: declaredTrunk, runner })),
     defaultBranch: safeCheck(() => checkDefaultBranch(cwd, declaredTrunk, { runner })),
     untriagedIssues: safeCheck(() => findUntriagedIssues(cwd, { runner })),
     milestoneSync: safeCheck(() => checkMilestoneVersionSync(cwd, currentSprintVersion, { runner })),
@@ -162,11 +249,12 @@ function main() {
 
   console.log('=== ASDLC hygiene audit ===');
   console.log(`Stale merged branches: ${formatCheck(report.staleBranches, (v) => (v.length ? v.join(', ') : 'none'))}`);
+  console.log(`Stale worktrees: ${formatCheck(report.staleWorktrees, (v) => (v.length ? v.map((w) => `${w.path} [${w.branch || 'detached'}] (${w.reasons.join(', ')})`).join('; ') : 'none'))}`);
   console.log(`Default branch: ${formatCheck(report.defaultBranch, (v) => (v.ok ? 'OK' : `MISMATCH (origin/HEAD -> ${v.actual}, expected ${declaredTrunk})`))}`);
   console.log(`Untriaged issues: ${formatCheck(report.untriagedIssues, (v) => (v.length ? v.map((i) => `#${i.number} (${i.reason})`).join(', ') : 'none'))}`);
   console.log(`Milestone/sprint version sync: ${formatCheck(report.milestoneSync, (v) => (v.inSync ? 'OK' : `OUT OF SYNC (milestones: ${v.milestoneVersions.join(', ')})`))}`);
 
-  const anyCheckFailed = ['staleBranches', 'defaultBranch', 'untriagedIssues', 'milestoneSync']
+  const anyCheckFailed = ['staleBranches', 'staleWorktrees', 'defaultBranch', 'untriagedIssues', 'milestoneSync']
     .some((key) => isCheckError(report[key]));
   if (anyCheckFailed) {
     process.exitCode = 1;
@@ -176,6 +264,7 @@ function main() {
 module.exports = {
   PROFILE_LABEL_PREFIXES,
   findStaleBranches,
+  findStaleWorktrees,
   checkDefaultBranch,
   findUntriagedIssues,
   checkMilestoneVersionSync,

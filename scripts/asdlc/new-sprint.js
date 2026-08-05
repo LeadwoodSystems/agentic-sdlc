@@ -1,6 +1,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { run } = require('./lib/exec');
+const { isBranchMerged } = require('./lib/branch-status');
 
 function slugFromFilename(filename) {
   // vX.Y-sN-<slug>.md -> <slug>
@@ -28,7 +29,85 @@ function compareByVersion(a, b) {
   return 0;
 }
 
-function checkGate(cwd, { trunk = 'main', runner = run } = {}) {
+// findStaleWorktrees is added to gh-hygiene.js by a sibling task of this same
+// sprint. It is resolved lazily and defensively rather than destructured at
+// module load so that this gate keeps loading — and keeps performing its branch
+// and plan checks — against a gh-hygiene.js that predates the export. Losing
+// the worktree check degrades the gate; a hard require failure would disable it
+// entirely, which is the worse failure for something that is meant to block.
+function resolveWorktreeFinder() {
+  try {
+    const { findStaleWorktrees } = require('./gh-hygiene');
+    return typeof findStaleWorktrees === 'function' ? findStaleWorktrees : null;
+  } catch {
+    return null;
+  }
+}
+
+// findStaleWorktrees' entries are shaped by that sibling task; tolerate a bare
+// string as well as the expected object so a shape change there degrades this
+// message rather than throwing inside the gate.
+function describeWorktree(entry) {
+  if (typeof entry === 'string') return entry;
+  if (!entry || typeof entry !== 'object') return String(entry);
+  const label = [entry.branch, entry.path].filter(Boolean).join(' at ') || JSON.stringify(entry);
+  const reasons = Array.isArray(entry.reasons)
+    ? entry.reasons
+    : [entry.reason].filter(Boolean);
+  return reasons.length > 0 ? `${label} (${reasons.join(', ')})` : label;
+}
+
+function checkGate(cwd, {
+  trunk = 'main',
+  runner = run,
+  findStaleWorktrees = resolveWorktreeFinder(),
+} = {}) {
+  // Check order is deliberate and was wrong before. The worktree and branch
+  // checks are MEASURED facts about repo state — a resource the new sprint
+  // would collide with. The plan/handoff check is a filename *convention*
+  // check about tidiness. Running the convention check first let a stale
+  // convention hide a stale resource: measured on this repo, a legacy plan
+  // filename predating the vMAJOR.MINOR-sN-<slug>.md scheme returned
+  // `unmatched-plan` and the branch check never ran at all. Correctness first,
+  // tidiness last.
+
+  if (findStaleWorktrees) {
+    // A branch can be checked out in exactly one worktree at a time, so a
+    // leftover worktree still holding a sprint branch will fight the new sprint
+    // over HEAD — the same class of resource conflict the branch check covers.
+    const stale = findStaleWorktrees(cwd, { trunk, runner });
+    if (Array.isArray(stale) && stale.length > 0) {
+      return {
+        blocked: true,
+        reason: 'stale-worktree',
+        detail: stale.map(describeWorktree).join('; '),
+      };
+    }
+  }
+
+  const branches = runner(
+    'git',
+    ['for-each-ref', 'refs/heads/sprint/*', '--format=%(refname:short)'],
+    { cwd },
+  )
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean);
+
+  for (const branch of branches) {
+    // Was `git log <trunk>..<branch>` being non-empty. That test is blind to a
+    // squash-merge — the branch's own commits are never on trunk afterwards —
+    // so it blocked forever on branches that were in fact merged. See
+    // lib/branch-status.js for why `git cherry` is not the fix either.
+    if (!isBranchMerged(cwd, branch, { trunk, runner })) {
+      return {
+        blocked: true,
+        reason: 'unmerged-branch',
+        detail: `${branch} has work not in ${trunk}`,
+      };
+    }
+  }
+
   const plansDir = path.join(cwd, 'docs/superpowers/plans');
   const handoffsDir = path.join(cwd, 'docs/handoffs');
 
@@ -44,24 +123,15 @@ function checkGate(cwd, { trunk = 'main', runner = run } = {}) {
         : [];
       const hasMatch = handoffs.some((f) => slugFromFilename(f) === slug);
       if (!hasMatch) {
-        return { blocked: true, reason: 'unmatched-plan' };
+        // Report the slug as well as the filename: when the plan predates the
+        // naming convention the two differ, and the slug is the only thing that
+        // explains why an apparently-present handoff didn't match.
+        return {
+          blocked: true,
+          reason: 'unmatched-plan',
+          detail: `docs/superpowers/plans/${newestPlan} has no handoff in docs/handoffs matching slug "${slug}"`,
+        };
       }
-    }
-  }
-
-  const branches = runner(
-    'git',
-    ['for-each-ref', 'refs/heads/sprint/*', '--format=%(refname:short)'],
-    { cwd },
-  )
-    .split('\n')
-    .map((l) => l.trim())
-    .filter(Boolean);
-
-  for (const branch of branches) {
-    const unmerged = runner('git', ['log', `${trunk}..${branch}`, '--oneline'], { cwd });
-    if (unmerged.length > 0) {
-      return { blocked: true, reason: 'unmerged-branch' };
     }
   }
 
@@ -144,12 +214,16 @@ function main() {
 
   const cwd = process.cwd();
   const gate = checkGate(cwd, { trunk });
+  // `detail` is present only on the blocked path — the not-blocked shape is
+  // exactly { blocked, reason } and callers assert on it — so render it
+  // conditionally rather than always appending an "undefined".
+  const detail = gate.detail ? ` — ${gate.detail}` : '';
   if (gate.blocked && !force) {
-    console.error(`Blocked: ${gate.reason}. Resolve it, or re-run with --force to override.`);
+    console.error(`Blocked: ${gate.reason}${detail}. Resolve it, or re-run with --force to override.`);
     process.exit(1);
   }
   if (gate.blocked && force) {
-    console.warn(`WARNING: overriding gate (${gate.reason}) via --force.`);
+    console.warn(`WARNING: overriding gate (${gate.reason}${detail}) via --force.`);
   }
 
   let result;
