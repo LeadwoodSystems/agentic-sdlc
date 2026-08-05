@@ -39,7 +39,7 @@ test('appendStatusEntry only appends, never rewrites prior lines', async () => {
       handoffRelPath: 'docs/handoffs/v0.1-s2-b.md',
     });
     const lines = fs.readFileSync(path.join(dir, 'docs/STATUS.md'), 'utf8')
-      .split('\n').filter((l) => l.startsWith('- '));
+      .split(/\r?\n/).filter((l) => l.startsWith('- '));
     assert.equal(lines.length, 2);
     assert.match(lines[0], /v0\.1-s1/);
     assert.match(lines[1], /v0\.1-s2/);
@@ -59,7 +59,7 @@ test('appendStatusEntry sanitizes newlines in summary', async () => {
     });
     const content = fs.readFileSync(path.join(dir, 'docs/STATUS.md'), 'utf8');
     // Should have header lines starting with #, and exactly one entry line starting with -
-    const lines = content.split('\n');
+    const lines = content.split(/\r?\n/);
     const entryLines = lines.filter((l) => l.startsWith('- '));
     assert.equal(entryLines.length, 1, 'Should have exactly one entry line');
     // Newline should be replaced with space
@@ -80,7 +80,7 @@ test('appendStatusEntry sanitizes newlines in sprintId', async () => {
       handoffRelPath: 'docs/handoffs/v0.1-s1-widgets.md',
     });
     const content = fs.readFileSync(path.join(dir, 'docs/STATUS.md'), 'utf8');
-    const lines = content.split('\n');
+    const lines = content.split(/\r?\n/);
     const entryLines = lines.filter((l) => l.startsWith('- '));
     assert.equal(entryLines.length, 1, 'Should have exactly one entry line');
     assert.match(entryLines[0], /v0\.1-s1 EVIL-INJECTED-LINE/);
@@ -101,7 +101,7 @@ test('appendStatusEntry sanitizes newlines in handoffRelPath', async () => {
       handoffRelPath: 'docs/handoffs/v0.1-s1-widgets.md\nEVIL-INJECTED-LINE',
     });
     const content = fs.readFileSync(path.join(dir, 'docs/STATUS.md'), 'utf8');
-    const lines = content.split('\n');
+    const lines = content.split(/\r?\n/);
     const entryLines = lines.filter((l) => l.startsWith('- '));
     assert.equal(entryLines.length, 1, 'Should have exactly one entry line');
     assert.match(entryLines[0], /v0\.1-s1-widgets\.md EVIL-INJECTED-LINE/);
@@ -122,7 +122,7 @@ test('appendStatusEntry sanitizes bare carriage returns in summary', async () =>
       handoffRelPath: 'docs/handoffs/v0.1-s1-widgets.md',
     });
     const content = fs.readFileSync(path.join(dir, 'docs/STATUS.md'), 'utf8');
-    const lines = content.split('\n');
+    const lines = content.split(/\r?\n/);
     const entryLines = lines.filter((l) => l.startsWith('- '));
     assert.equal(entryLines.length, 1, 'Should have exactly one entry line');
     assert.match(entryLines[0], /Add widget support and fix bugs/);
@@ -143,7 +143,7 @@ test('appendStatusEntry sanitizes newlines in date', async () => {
       handoffRelPath: 'docs/handoffs/v0.1-s1-widgets.md',
     });
     const content = fs.readFileSync(path.join(dir, 'docs/STATUS.md'), 'utf8');
-    const lines = content.split('\n');
+    const lines = content.split(/\r?\n/);
     const entryLines = lines.filter((l) => l.startsWith('- '));
     assert.equal(entryLines.length, 1, 'Should have exactly one entry line');
     assert.match(entryLines[0], /2026-07-22 EVIL-INJECTED-LINE/);
@@ -353,6 +353,84 @@ test('CLI main() skips CLAUDE.md pointer update with a warning (not a crash) whe
     const combinedOutput = `${result.stdout}${result.stderr}`;
     assert.match(combinedOutput, /Skipped CLAUDE\.md pointer update/i);
     assert.doesNotMatch(combinedOutput, /at Object\.<anonymous>/, 'output should not contain a stack trace');
+  } finally {
+    cleanup();
+  }
+});
+
+// Total LF minus CRLF pairs = the LFs that are NOT part of a CRLF. Counting this
+// way rather than with a lookbehind keeps the intent readable: a CRLF document
+// that gained a bare \n is exactly what `core.autocrlf` hides from `git diff`.
+function bareLfCount(text) {
+  const lf = (text.match(/\n/g) || []).length;
+  const crlf = (text.match(/\r\n/g) || []).length;
+  return lf - crlf;
+}
+
+test('updateClaudeMdPointer writes CRLF into a CRLF CLAUDE.md', async () => {
+  const { dir, cleanup } = await makeFixtureRepo();
+  try {
+    const claudeMdPath = path.join(dir, 'CLAUDE.md');
+    fs.writeFileSync(claudeMdPath, [
+      '# Project',
+      '',
+      '<!-- asdlc:current-state:auto -->',
+      '**Current state:** old',
+      '<!-- /asdlc:current-state:auto -->',
+      '',
+      'Footer.',
+      '',
+    ].join('\r\n'));
+
+    updateClaudeMdPointer(dir, 'v0.1-s1 shipped widgets');
+
+    const after = fs.readFileSync(claudeMdPath, 'utf8');
+    assert.equal(
+      bareLfCount(after),
+      0,
+      'the pointer was spliced in with literal \\n, leaving a CRLF document with mixed endings',
+    );
+    assert.match(after, /\*\*Current state:\*\* v0\.1-s1 shipped widgets/);
+  } finally {
+    cleanup();
+  }
+});
+
+test('appendStatusEntry writes CRLF into a CRLF STATUS.md', async () => {
+  const { dir, cleanup } = await makeFixtureRepo();
+  try {
+    const statusPath = path.join(dir, 'docs/STATUS.md');
+    fs.mkdirSync(path.dirname(statusPath), { recursive: true });
+    fs.writeFileSync(statusPath, '# STATUS\r\n\r\n');
+
+    appendStatusEntry(dir, {
+      sprintId: 'v0.1-s1', date: '2026-07-22', summary: 'Add widget support',
+      handoffRelPath: 'docs/handoffs/v0.1-s1-widgets.md',
+    });
+
+    assert.equal(
+      bareLfCount(fs.readFileSync(statusPath, 'utf8')),
+      0,
+      'the entry line ended in a literal \\n, leaving a CRLF document with mixed endings',
+    );
+  } finally {
+    cleanup();
+  }
+});
+
+test('appendStatusEntry uses LF for a STATUS.md it creates', async () => {
+  // A file with no content has no ending to detect. LF is chosen deliberately:
+  // git's autocrlf normalises it on checkout, and guessing CRLF would impose a
+  // house style on repos that do not use one.
+  const { dir, cleanup } = await makeFixtureRepo();
+  try {
+    appendStatusEntry(dir, {
+      sprintId: 'v0.1-s1', date: '2026-07-22', summary: 'First',
+      handoffRelPath: 'docs/handoffs/v0.1-s1-a.md',
+    });
+    const content = fs.readFileSync(path.join(dir, 'docs/STATUS.md'), 'utf8');
+    assert.equal((content.match(/\r\n/g) || []).length, 0, 'a newly created STATUS.md should be LF');
+    assert.ok(bareLfCount(content) > 0);
   } finally {
     cleanup();
   }

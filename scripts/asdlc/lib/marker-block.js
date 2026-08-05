@@ -11,14 +11,15 @@
 // is the one rule a hand-rolled reimplementation is most likely to miss and
 // least likely to notice missing.
 //
-// DELIBERATELY NOT MIGRATED: `profile-block.js` and `checkpoint-hooks.js` still
-// carry their own copies. They shipped last week with behaviour this module does
-// not reproduce — profile-block additionally guards ``` fences (its span holds a
-// JSON fence, this one holds plain markdown) and checkpoint-hooks writes only
-// between the markers while keeping whatever the file already had around them.
-// Moving them here is a separate, riskier change that was explicitly left out of
-// this sprint's scope. `facts.js` is the only consumer. Please do not "finish
-// the job" unbidden — the migration needs its own tests, not a drive-by.
+// MIGRATED IN v0.2-s6: `checkpoint-hooks.js` used to carry its own splice and
+// wrote a literal '\n' into CRLF documents on every checkpoint. It now calls
+// findBlock + upsertBlock. Note what it does NOT delegate: upsertBlock appends
+// an absent span, and the current-state pointer's position in CLAUDE.md is part
+// of its meaning, so that caller checks `found` itself and refuses.
+//
+// STILL NOT MIGRATED: `profile-block.js`. It additionally guards ``` fences —
+// its span holds a JSON fence where this one holds plain markdown — and this
+// module does not reproduce that. Moving it needs its own tests, not a drive-by.
 
 // Both marker conventions already in the tree (`asdlc:current-state:auto`,
 // `asdlc:execution-profile`) are the same shape, so the name is the only input.

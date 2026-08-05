@@ -1,5 +1,6 @@
 const fs = require('node:fs');
 const path = require('node:path');
+const { makeMarkers, detectEol, findBlock, upsertBlock } = require('./lib/marker-block');
 
 const STATUS_HEADER = [
   '# STATUS',
@@ -15,8 +16,13 @@ function appendStatusEntry(cwd, { sprintId, date, summary, handoffRelPath }) {
   const statusPath = path.join(cwd, 'docs/STATUS.md');
   fs.mkdirSync(path.dirname(statusPath), { recursive: true });
 
-  if (!fs.existsSync(statusPath)) {
-    fs.writeFileSync(statusPath, STATUS_HEADER);
+  // An EXISTING file's own ending is authoritative — appending LF to a CRLF
+  // document is what produced the mixed endings this replaces. A file created
+  // here has nothing to detect, so it gets LF and autocrlf normalises it.
+  const existing = fs.existsSync(statusPath) ? fs.readFileSync(statusPath, 'utf8') : null;
+  const eol = existing === null ? '\n' : detectEol(existing);
+  if (existing === null) {
+    fs.writeFileSync(statusPath, STATUS_HEADER.replace(/\n/g, eol));
   }
 
   // Sanitize all interpolated fields: replace CR/LF with spaces to maintain the
@@ -27,36 +33,35 @@ function appendStatusEntry(cwd, { sprintId, date, summary, handoffRelPath }) {
   const sanitizedHandoffRelPath = handoffRelPath.replace(/[\r\n]/g, ' ');
   const sanitizedDate = date.replace(/[\r\n]/g, ' ');
 
-  const line = `- ${sanitizedDate} **${sanitizedSprintId}** — ${sanitizedSummary} — [handoff](${sanitizedHandoffRelPath}) — status: awaiting-merge\n`;
+  const line = `- ${sanitizedDate} **${sanitizedSprintId}** — ${sanitizedSummary} — [handoff](${sanitizedHandoffRelPath}) — status: awaiting-merge${eol}`;
   fs.appendFileSync(statusPath, line);
 }
 
-const START_MARKER = '<!-- asdlc:current-state:auto -->';
-const END_MARKER = '<!-- /asdlc:current-state:auto -->';
+const CURRENT_STATE_MARKERS = makeMarkers('asdlc:current-state:auto');
 
 function updateClaudeMdPointer(cwd, summaryLine) {
   const claudeMdPath = path.join(cwd, 'CLAUDE.md');
   const content = fs.readFileSync(claudeMdPath, 'utf8');
 
-  if (summaryLine.includes(START_MARKER) || summaryLine.includes(END_MARKER)) {
+  // upsertBlock APPENDS an absent span. That is right for the facts block, which
+  // may legitimately be created at the end of a file, and wrong here: the
+  // current-state pointer's POSITION in CLAUDE.md is part of its meaning, and
+  // silently re-homing it to the bottom is worse than refusing. So absence is
+  // checked here rather than delegated.
+  if (!findBlock(content, CURRENT_STATE_MARKERS).found) {
     throw new Error(
-      'summaryLine must not contain the asdlc:current-state:auto marker text — this would corrupt the marker span on a future update.'
+      `CLAUDE.md is missing the ${CURRENT_STATE_MARKERS.start} marker — cannot safely update the pointer.`,
     );
   }
 
-  const startIdx = content.indexOf(START_MARKER);
-  const endIdx = content.indexOf(END_MARKER);
-  if (startIdx === -1 || endIdx === -1 || endIdx < startIdx) {
-    throw new Error(
-      `CLAUDE.md is missing the asdlc:current-state:auto marker pair — cannot safely update the pointer.`
-    );
-  }
-
-  const before = content.slice(0, startIdx + START_MARKER.length);
-  const after = content.slice(endIdx);
-  const rewritten = `${before}\n**Current state:** ${summaryLine}\n${after}`;
-
-  fs.writeFileSync(claudeMdPath, rewritten);
+  // The injection guard is assertNoMarkerText, inside upsertBlock — a payload
+  // containing the marker text throws before anything is written, so the file
+  // is not corrupted on this run or the next. The hand-rolled copy that used to
+  // live here is gone; this is the whole reason marker-block.js exists.
+  fs.writeFileSync(
+    claudeMdPath,
+    upsertBlock(content, CURRENT_STATE_MARKERS, `**Current state:** ${summaryLine}`),
+  );
 }
 
 function main() {
