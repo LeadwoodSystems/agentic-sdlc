@@ -119,10 +119,8 @@ Node (core only) + Markdown. No build step, no runtime dependencies.
 ```
 skills/agentic-sdlc/{SKILL.md,references/}   the method
 commands/*.md                                slash commands
-scripts/asdlc/                               checkpoint-hooks, new-sprint, finish-sprint,
-                                             archive-sprint-docs, gh-hygiene, facts,
-                                             asdlc-lint, lib/{exec,branch-status,
-                                             marker-block,profile-block}
+scripts/asdlc/                               every gate and bookkeeping script (see the dir)
+scripts/asdlc/lib/                           shared seams: exec, marker spans, git state
 scripts/asdlc/test/                          node:test suite (+ helpers/fixture-repo.js)
 .asdlc/{policy/,facts.json}                  machine-read config
 docs/{superpowers/,handoffs/,STATUS.md}      plans, specs, handoffs, history

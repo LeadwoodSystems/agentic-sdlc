@@ -11,13 +11,10 @@ or history. Core principle: **keep persistent context thin, push history to disk
 every sprint resume-ready from a written handoff.** Proven across 100+ sprints on one
 product. This skill orchestrates existing `superpowers` skills — it does not replace them.
 
-> Script names below (`checkpoint-hooks.js`, `new-sprint.js`, `finish-sprint.js`,
-> `archive-sprint-docs.js`, `gh-hygiene.js`, `facts.js`, `asdlc-lint.js`) are the
-> plugin's reference implementation.
-> A project may ship a ported equivalent instead — e.g. GAW's Windows build uses
-> PowerShell (`scripts/asdlc/checkpoint-hooks.ps1`, `new-sprint.ps1`, `finish-sprint.ps1`,
-> `archive-sprint-docs.ps1`, `gh-hygiene.ps1`). Check `scripts/asdlc/README.md` for the
-> actual filenames in use before running one that doesn't exist.
+> Scripts named below live in the plugin's `scripts/asdlc/`; that directory is the list.
+> A project may ship a ported equivalent instead — e.g. GAW's Windows build uses PowerShell
+> (`checkpoint-hooks.ps1`, `new-sprint.ps1`, …). Check the project's own `scripts/asdlc/`
+> for the filenames actually in use before running one that may not exist there.
 
 Two rules make it work:
 1. **Thin persistent context.** The repo's `CLAUDE.md` holds ONLY durable rules +
