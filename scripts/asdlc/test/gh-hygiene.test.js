@@ -720,3 +720,31 @@ test('findFailingScheduledWorkflows reports each workflow independently', () => 
   const findings = findFailingScheduledWorkflows('/repo', { runner });
   assert.deepEqual(findings.map((f) => f.workflow), ['nightly', 'monthly-sweep']);
 });
+
+test('findFailingScheduledWorkflows does not flag a cancelled or skipped run', () => {
+  const runner = () => JSON.stringify([
+    { workflowName: 'nightly', conclusion: 'cancelled', status: 'completed', createdAt: '2026-08-04T02:00:00Z' },
+    { workflowName: 'weekly', conclusion: 'skipped', status: 'completed', createdAt: '2026-08-03T02:00:00Z' },
+  ]);
+  assert.deepEqual(
+    findFailingScheduledWorkflows('/repo', { runner }),
+    [],
+    'a human cancelling a run and a path filter skipping one are not the workflow failing',
+  );
+});
+
+test('findFailingScheduledWorkflows flags every conclusion that means the workflow failed', () => {
+  const conclusions = ['failure', 'timed_out', 'startup_failure', 'action_required'];
+  const runner = () => JSON.stringify(conclusions.map((conclusion, i) => ({
+    workflowName: `wf-${conclusion}`,
+    conclusion,
+    status: 'completed',
+    createdAt: `2026-08-0${i + 1}T02:00:00Z`,
+  })));
+  const found = findFailingScheduledWorkflows('/repo', { runner }).map((f) => f.conclusion).sort();
+  assert.deepEqual(
+    found,
+    [...conclusions].sort(),
+    'narrowing the predicate must not stop it reporting the conclusions that are real reds',
+  );
+});
