@@ -235,12 +235,13 @@ test('checkMilestoneVersionSync extracts version-like tokens from titles with ex
   }
 });
 
-test('runHygieneAudit aggregates all five checks', async () => {
+test('runHygieneAudit aggregates all six checks', async () => {
   const { dir, cleanup } = await makeFixtureRepo();
   try {
     const stubRunner = (cmd, args) => {
       const joined = args.join(' ');
       if (joined.includes('symbolic-ref')) return 'refs/remotes/origin/main';
+      if (joined.includes('run list')) return '[]';
       if (joined.includes('issue list')) return '[]';
       if (joined.includes('milestones')) return 'v0.12\n';
       if (joined.includes('worktree list')) return '';
@@ -251,6 +252,37 @@ test('runHygieneAudit aggregates all five checks', async () => {
       currentSprintVersion: 'v0.12',
       runner: stubRunner,
     });
+    assert.deepEqual(report.staleBranches, []);
+    assert.deepEqual(report.staleWorktrees, []);
+    assert.deepEqual(report.defaultBranch, { ok: true, actual: 'main' });
+    assert.deepEqual(report.untriagedIssues, []);
+    assert.equal(report.milestoneSync.inSync, true);
+    assert.deepEqual(report.failingScheduled, []);
+  } finally {
+    cleanup();
+  }
+});
+
+test('runHygieneAudit isolates a failing scheduled-workflow check from the other five', async () => {
+  const { dir, cleanup } = await makeFixtureRepo();
+  try {
+    const stubRunner = (cmd, args) => {
+      const joined = args.join(' ');
+      if (joined.includes('run list')) throw new Error('gh: authentication required (gh auth login)');
+      if (joined.includes('symbolic-ref')) return 'refs/remotes/origin/main';
+      if (joined.includes('for-each-ref')) return '';
+      if (joined.includes('worktree list')) return '';
+      if (joined.includes('issue list')) return '[]';
+      if (joined.includes('milestones')) return 'v0.12\n';
+      return '';
+    };
+    const report = runHygieneAudit(dir, {
+      declaredTrunk: 'main',
+      currentSprintVersion: 'v0.12',
+      runner: stubRunner,
+    });
+    assert.equal(typeof report.failingScheduled.error, 'string');
+    assert.match(report.failingScheduled.error, /authentication required/);
     assert.deepEqual(report.staleBranches, []);
     assert.deepEqual(report.staleWorktrees, []);
     assert.deepEqual(report.defaultBranch, { ok: true, actual: 'main' });
@@ -268,6 +300,7 @@ test('runHygieneAudit isolates a failing gh-based check so git-based results sti
       const joined = args.join(' ');
       if (joined.includes('symbolic-ref')) return 'refs/remotes/origin/main';
       if (joined.includes('for-each-ref')) return '';
+      if (joined.includes('run list')) throw new Error('gh: authentication required (gh auth login)');
       if (joined.includes('issue list')) throw new Error('gh: authentication required (gh auth login)');
       if (joined.includes('milestones')) throw new Error('gh: authentication required (gh auth login)');
       return '';
@@ -277,15 +310,17 @@ test('runHygieneAudit isolates a failing gh-based check so git-based results sti
       currentSprintVersion: 'v0.12',
       runner: stubRunner,
     });
-    // The two git-only checks succeeded and must still be reported normally.
+    // The three git-only checks succeeded and must still be reported normally.
     assert.deepEqual(report.staleBranches, []);
     assert.deepEqual(report.defaultBranch, { ok: true, actual: 'main' });
-    // The two gh-based checks failed; runHygieneAudit must not throw, and must
+    // The three gh-based checks failed; runHygieneAudit must not throw, and must
     // surface the failure distinctly instead of silently dropping it.
     assert.equal(typeof report.untriagedIssues.error, 'string');
     assert.match(report.untriagedIssues.error, /authentication required/);
     assert.equal(typeof report.milestoneSync.error, 'string');
     assert.match(report.milestoneSync.error, /authentication required/);
+    assert.equal(typeof report.failingScheduled.error, 'string');
+    assert.match(report.failingScheduled.error, /authentication required/);
   } finally {
     cleanup();
   }
@@ -301,6 +336,7 @@ test('runHygieneAudit threads declaredTrunk into findStaleBranches, not a hardco
       if (joined.includes('symbolic-ref')) return 'refs/remotes/origin/build/v0.1';
       if (joined.includes('for-each-ref')) return 'sprint/v0.1-s1';
       if (joined.includes('pr list')) return '[]'; // no merged PR => fall through to the tree comparison
+      if (joined.includes('run list')) return '[]';
       if (joined.includes('issue list')) return '[]';
       if (joined.includes('milestones')) return 'v0.12\n';
       return ''; // git diff --quiet exit 0 => merged, whatever ref was asked for
@@ -341,6 +377,7 @@ test('runHygieneAudit isolates a failing git-based check too, so a gh-based resu
       const joined = args.join(' ');
       if (joined.includes('for-each-ref')) throw new Error('git: not a git repository');
       if (joined.includes('symbolic-ref')) throw new Error('git: not a git repository');
+      if (joined.includes('run list')) return '[]';
       if (joined.includes('issue list')) return '[]';
       if (joined.includes('milestones')) return 'v0.12\n';
       return '';

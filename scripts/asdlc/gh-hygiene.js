@@ -229,12 +229,13 @@ function findFailingScheduledWorkflows(cwd, { runner = run } = {}) {
   return findings;
 }
 
-// runHygieneAudit aggregates five independent checks. Three (findStaleBranches,
+// runHygieneAudit aggregates six independent checks. Three (findStaleBranches,
 // findStaleWorktrees, checkDefaultBranch) only need local git and will succeed
 // in any real repo.
-// The other two (findUntriagedIssues, checkMilestoneVersionSync) shell out to
-// `gh` and depend on GitHub auth, network access, and a GitHub remote existing
-// — any of which can be missing/broken independently of the git-only checks.
+// The other three (findUntriagedIssues, checkMilestoneVersionSync,
+// findFailingScheduledWorkflows) shell out to `gh` and depend on GitHub auth,
+// network access, and a GitHub remote existing — any of which can be
+// missing/broken independently of the git-only checks.
 //
 // This is a read-only *audit/report* tool, not a hard gate: its whole value is
 // "tell the human as much as you can find out". Letting one gh-based check's
@@ -244,8 +245,8 @@ function findFailingScheduledWorkflows(cwd, { runner = run } = {}) {
 // when the issue-triage check can't run. So each check is isolated: a failing
 // check is represented as `{ error: <message> }` in its slot instead of
 // aborting the whole aggregate, and every other (successful) check's real
-// result is still returned. This isolation is applied uniformly to all four
-// checks (not just the two gh-based ones) since even a "local-only" git check
+// result is still returned. This isolation is applied uniformly to all six
+// checks (not just the three gh-based ones) since even a "local-only" git check
 // can fail for reasons unrelated to the others (missing git binary, corrupted
 // .git, wrong cwd, etc.) and there is no reason a failure there should hide
 // results from checks that did succeed. The worktree check is the newest
@@ -267,6 +268,7 @@ function runHygieneAudit(cwd, { declaredTrunk, currentSprintVersion, runner = ru
     defaultBranch: safeCheck(() => checkDefaultBranch(cwd, declaredTrunk, { runner })),
     untriagedIssues: safeCheck(() => findUntriagedIssues(cwd, { runner })),
     milestoneSync: safeCheck(() => checkMilestoneVersionSync(cwd, currentSprintVersion, { runner })),
+    failingScheduled: safeCheck(() => findFailingScheduledWorkflows(cwd, { runner })),
   };
 }
 
@@ -297,8 +299,9 @@ function main() {
   console.log(`Default branch: ${formatCheck(report.defaultBranch, (v) => (v.ok ? 'OK' : `MISMATCH (origin/HEAD -> ${v.actual}, expected ${declaredTrunk})`))}`);
   console.log(`Untriaged issues: ${formatCheck(report.untriagedIssues, (v) => (v.length ? v.map((i) => `#${i.number} (${i.reason})`).join(', ') : 'none'))}`);
   console.log(`Milestone/sprint version sync: ${formatCheck(report.milestoneSync, (v) => (v.inSync ? 'OK' : `OUT OF SYNC (milestones: ${v.milestoneVersions.join(', ')})`))}`);
+  console.log(`Failing scheduled workflows: ${formatCheck(report.failingScheduled, (v) => (v.length ? v.map((w) => `${w.workflow} (${w.conclusion}, ${w.createdAt})`).join(', ') : 'none'))}`);
 
-  const anyCheckFailed = ['staleBranches', 'staleWorktrees', 'defaultBranch', 'untriagedIssues', 'milestoneSync']
+  const anyCheckFailed = ['staleBranches', 'staleWorktrees', 'defaultBranch', 'untriagedIssues', 'milestoneSync', 'failingScheduled']
     .some((key) => isCheckError(report[key]));
   if (anyCheckFailed) {
     process.exitCode = 1;

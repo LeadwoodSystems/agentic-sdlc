@@ -33,8 +33,8 @@ running history: `docs/STATUS.md`. Branch discipline: one sprint = one branch
 <!-- asdlc:facts:auto -->
 <!-- Measured by `node scripts/asdlc/facts.js` from .asdlc/facts.json. Do not hand-edit: your numbers will be overwritten, and `--check` will fail until they are. -->
 
-- asdlc unit tests: **270**
-- asdlc unit tests passing: **270**
+- asdlc unit tests: **278**
+- asdlc unit tests passing: **278**
 - node: **v24.11.1**
 <!-- /asdlc:facts:auto -->
 
@@ -135,7 +135,7 @@ node --test "scripts/asdlc/test/**/*.test.js"   # the whole suite (~25s)
 node scripts/asdlc/facts.js                     # re-measure the facts span
 node scripts/asdlc/facts.js --check             # non-zero if the span is stale
 node scripts/asdlc/asdlc-lint.js                # lint this file
-node scripts/asdlc/gh-hygiene.js main v0.2      # stale branches/worktrees, triage, milestones
+node scripts/asdlc/gh-hygiene.js main v0.2      # stale branches/worktrees, triage, milestones, scheduled workflows
 ```
 
 **Shell:** PowerShell is canonical on the development machine; the Bash tool is retired
