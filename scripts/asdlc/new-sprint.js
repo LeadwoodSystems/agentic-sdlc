@@ -148,7 +148,21 @@ function assertSafePathSegment(value, label) {
   }
 }
 
-function createSprint(cwd, sprintId, slug, { runner = run } = {}) {
+// Resolved from THIS script, not from cwd. When the plugin's own scripts/asdlc
+// runs against a consumer repo, the plugin's skills/ sits two levels up and
+// carries the canonical template. A repo bootstrapped by /bootstrap-asdlc has
+// copied these scripts into its own tree, where that path does not resolve —
+// and does not need to, because bootstrap also writes plans/_TEMPLATE.md, which
+// is checked first. So this repo needs no copy of its own template, and a
+// consumer's behaviour is unchanged.
+const REFERENCE_TEMPLATE_PATH = path.join(
+  __dirname, '..', '..', 'skills', 'agentic-sdlc', 'references', 'plan-template.md',
+);
+
+function createSprint(cwd, sprintId, slug, {
+  runner = run,
+  referenceTemplatePath = REFERENCE_TEMPLATE_PATH,
+} = {}) {
   assertSafePathSegment(sprintId, 'sprintId');
   assertSafePathSegment(slug, 'slug');
 
@@ -157,12 +171,16 @@ function createSprint(cwd, sprintId, slug, { runner = run } = {}) {
   const plansDir = path.join(cwd, 'docs/superpowers/plans');
   fs.mkdirSync(plansDir, { recursive: true });
 
-  const templatePath = path.join(plansDir, '_TEMPLATE.md');
+  // First existing wins: the project's own template, then the plugin's, then a
+  // stub. The stub stays as the last rung so a repo with neither still gets a
+  // file rather than a crash.
+  const templatePath = [path.join(plansDir, '_TEMPLATE.md'), referenceTemplatePath]
+    .find((candidate) => candidate && fs.existsSync(candidate));
   const relPlanPath = path.join('docs/superpowers/plans', `${sprintId}-${slug}.md`);
   const absPlanPath = path.join(cwd, relPlanPath);
 
   let content;
-  if (fs.existsSync(templatePath)) {
+  if (templatePath) {
     const substituted = `${sprintId} — ${slug}`;
     content = fs.readFileSync(templatePath, 'utf8')
       .replace(/<Sprint id> — <Name>/g, substituted);
