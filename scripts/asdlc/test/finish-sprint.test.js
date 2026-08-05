@@ -1,10 +1,119 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const { run } = require('../lib/exec');
 const { makeFixtureRepo } = require('./helpers/fixture-repo');
-const { markMerged, deleteBranch, checkMilestone, main } = require('../finish-sprint');
+const {
+  markMerged,
+  deleteBranch,
+  resolveSprintBranch,
+  removeWorktreeForBranch,
+  checkMilestone,
+  main,
+} = require('../finish-sprint');
+
+// `git worktree list --porcelain` output. The main worktree is always the first
+// record (git documents this ordering), which is what the main-worktree guard
+// keys off. Paths come back with forward slashes even on Windows.
+const PORCELAIN = [
+  'worktree C:/repos/asdlc',
+  'HEAD 1111111111111111111111111111111111111111',
+  'branch refs/heads/main',
+  '',
+  'worktree C:/repos/asdlc-wt/v0.1-s1',
+  'HEAD 2222222222222222222222222222222222222222',
+  'branch refs/heads/sprint/v0.1-s1',
+  '',
+  // A detached worktree carries no `branch` line at all; it must never match.
+  'worktree C:/repos/asdlc-wt/detached',
+  'HEAD 3333333333333333333333333333333333333333',
+  'detached',
+].join('\n');
+
+// Stub runner for the worktree path. `calls` collects `git <args…>` strings in
+// invocation order, which is how the ordering assertions below are made.
+function makeWorktreeStub({ calls, porcelain = PORCELAIN, statusOutput = '', branches = 'sprint/v0.1-s1' }) {
+  return (cmd, args, opts = {}) => {
+    calls.push([cmd, ...args].join(' '));
+    // main() resolves the sprint branch before touching anything (see
+    // resolveSprintBranch), so the stub must answer for-each-ref or every main()
+    // test bails out early with "no branch named …".
+    if (cmd === 'git' && args[0] === 'for-each-ref') return branches;
+    if (cmd === 'git' && args[0] === 'worktree' && args[1] === 'list') return porcelain;
+    if (cmd === 'git' && args[0] === 'status') {
+      // `git status --porcelain` is answered per-worktree: only the sprint
+      // worktree is dirty, so assert the caller passed ITS path as cwd.
+      return opts.cwd === 'C:/repos/asdlc-wt/v0.1-s1' ? statusOutput : '';
+    }
+    if (cmd === 'gh') return JSON.stringify({ milestone: { title: 'v0.9' } });
+    return '';
+  };
+}
+
+// resolveSprintBranch exists because `sprint/${sprintId}` is an ASSUMPTION, not a
+// guarantee. Observed live on 2026-08-05: `finish-sprint.js v0.2-s1 <sha>` looked for
+// `sprint/v0.2-s1` while the real branch was `sprint/v0.2-s1-execution-profiles`, so it
+// rewrote STATUS.md and *then* died with a raw stack trace — leaving the operation
+// half-done and non-idempotent, because the re-run fails in markMerged.
+test('resolveSprintBranch prefers an exact sprint/<id> match', () => {
+  const branches = ['sprint/v0.2-s1', 'sprint/v0.2-s1-execution-profiles'];
+  const runner = () => branches.join('\n');
+  assert.equal(resolveSprintBranch('.', 'v0.2-s1', { runner }).branch, 'sprint/v0.2-s1');
+});
+
+test('resolveSprintBranch finds the slugged branch when no exact match exists', () => {
+  const runner = () => 'sprint/v0.2-s1-execution-profiles\nsprint/v0.2-s2';
+  const resolved = resolveSprintBranch('.', 'v0.2-s1', { runner });
+  assert.equal(resolved.branch, 'sprint/v0.2-s1-execution-profiles');
+});
+
+test('resolveSprintBranch does not confuse v0.2-s1 with v0.2-s10', () => {
+  const runner = () => 'sprint/v0.2-s10-something';
+  const resolved = resolveSprintBranch('.', 'v0.2-s1', { runner });
+  assert.equal(resolved.branch, null);
+  assert.equal(resolved.reason, 'not-found');
+});
+
+test('resolveSprintBranch refuses to guess between several slugged candidates', () => {
+  const runner = () => 'sprint/v0.2-s1-one\nsprint/v0.2-s1-two';
+  const resolved = resolveSprintBranch('.', 'v0.2-s1', { runner });
+  assert.equal(resolved.branch, null);
+  assert.equal(resolved.reason, 'ambiguous');
+  assert.deepEqual(resolved.candidates, ['sprint/v0.2-s1-one', 'sprint/v0.2-s1-two']);
+});
+
+test('main refuses BEFORE touching STATUS.md when the branch cannot be resolved', async () => {
+  const { dir, cleanup } = await makeFixtureRepo();
+  try {
+    const statusPath = path.join(dir, 'docs/STATUS.md');
+    fs.mkdirSync(path.dirname(statusPath), { recursive: true });
+    fs.writeFileSync(statusPath, '- 2026-08-05 **v9.9-s1** — x — [h](h.md) — status: awaiting-merge\n');
+    const before = fs.readFileSync(statusPath, 'utf8');
+
+    const cwd = process.cwd();
+    process.chdir(dir);
+    const errors = [];
+    const origError = console.error;
+    console.error = (m) => errors.push(String(m));
+    const origExitCode = process.exitCode;
+    try {
+      // No branch matches, so nothing may be mutated.
+      main(['v9.9-s1', 'abc1234'], { runner: () => '' });
+    } finally {
+      console.error = origError;
+      process.chdir(cwd);
+    }
+
+    assert.equal(fs.readFileSync(statusPath, 'utf8'), before, 'STATUS.md must be untouched');
+    assert.match(errors.join('\n'), /v9\.9-s1/);
+    assert.equal(process.exitCode, 1);
+    process.exitCode = origExitCode;
+  } finally {
+    await cleanup();
+  }
+});
 
 test('markMerged flips only the matching line', async () => {
   const { dir, cleanup } = await makeFixtureRepo();
@@ -399,6 +508,235 @@ test('main() with milestone check errors does not crash (graceful error handling
   } finally {
     process.chdir(originalCwd);
     console.warn = originalWarn;
+    cleanup();
+  }
+});
+
+test('removeWorktreeForBranch removes the clean worktree holding the branch', () => {
+  const calls = [];
+  const result = removeWorktreeForBranch('C:/repos/asdlc', 'sprint/v0.1-s1', {
+    runner: makeWorktreeStub({ calls }),
+  });
+
+  assert.deepEqual(result, {
+    removed: true,
+    forced: false,
+    path: 'C:/repos/asdlc-wt/v0.1-s1',
+  });
+  assert.ok(
+    calls.includes('git worktree remove C:/repos/asdlc-wt/v0.1-s1'),
+    `expected a plain worktree remove, got: ${JSON.stringify(calls)}`,
+  );
+  assert.ok(
+    !calls.some((c) => c.includes('--force')),
+    'a clean worktree must not be removed with --force',
+  );
+});
+
+test('removeWorktreeForBranch is a no-op when no worktree holds the branch', () => {
+  const calls = [];
+  const result = removeWorktreeForBranch('C:/repos/asdlc', 'sprint/v9.9-s9', {
+    runner: makeWorktreeStub({ calls }),
+  });
+
+  assert.deepEqual(result, { removed: false, reason: 'no-worktree' });
+  assert.ok(
+    !calls.some((c) => c.startsWith('git worktree remove')),
+    `nothing should be removed, got: ${JSON.stringify(calls)}`,
+  );
+  // No worktree also means no tree to inspect for dirtiness.
+  assert.ok(!calls.some((c) => c.startsWith('git status')));
+});
+
+test('removeWorktreeForBranch refuses a dirty worktree and reports what it found', () => {
+  const calls = [];
+  const result = removeWorktreeForBranch('C:/repos/asdlc', 'sprint/v0.1-s1', {
+    runner: makeWorktreeStub({
+      calls,
+      statusOutput: ' M src/app.js\n?? notes.md',
+    }),
+  });
+
+  assert.deepEqual(result, {
+    removed: false,
+    reason: 'dirty',
+    path: 'C:/repos/asdlc-wt/v0.1-s1',
+    changes: [' M src/app.js', '?? notes.md'],
+  });
+  assert.ok(
+    !calls.some((c) => c.startsWith('git worktree remove')),
+    `a dirty worktree must not be removed without force, got: ${JSON.stringify(calls)}`,
+  );
+});
+
+test('removeWorktreeForBranch removes a dirty worktree when forced', () => {
+  const calls = [];
+  const result = removeWorktreeForBranch('C:/repos/asdlc', 'sprint/v0.1-s1', {
+    force: true,
+    runner: makeWorktreeStub({ calls, statusOutput: ' M src/app.js' }),
+  });
+
+  assert.deepEqual(result, {
+    removed: true,
+    forced: true,
+    path: 'C:/repos/asdlc-wt/v0.1-s1',
+  });
+  assert.ok(
+    calls.includes('git worktree remove --force C:/repos/asdlc-wt/v0.1-s1'),
+    `expected a forced worktree remove, got: ${JSON.stringify(calls)}`,
+  );
+});
+
+test('removeWorktreeForBranch refuses to remove the main worktree', () => {
+  const calls = [];
+  const result = removeWorktreeForBranch('C:/repos/asdlc', 'main', {
+    force: true,
+    runner: makeWorktreeStub({ calls }),
+  });
+
+  assert.deepEqual(result, {
+    removed: false,
+    reason: 'main-worktree',
+    path: 'C:/repos/asdlc',
+  });
+  assert.ok(
+    !calls.some((c) => c.startsWith('git worktree remove')),
+    'the main worktree must never be removed, even under --force',
+  );
+});
+
+// main() only needs a directory holding docs/STATUS.md: every git/gh call is
+// intercepted by the stub, so a real fixture repo would buy nothing here.
+function makeStatusDir() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'asdlc-finish-'));
+  fs.mkdirSync(path.join(dir, 'docs'), { recursive: true });
+  fs.writeFileSync(
+    path.join(dir, 'docs/STATUS.md'),
+    '- 2026-07-20 **v0.1-s1** — First — [handoff](docs/handoffs/v0.1-s1-a.md) — status: awaiting-merge\n',
+  );
+  return { dir, cleanup: () => fs.rmSync(dir, { recursive: true, force: true }) };
+}
+
+test('main() removes the sprint worktree BEFORE deleting the branch', () => {
+  const { dir, cleanup } = makeStatusDir();
+  const originalCwd = process.cwd();
+  const originalLog = console.log;
+  try {
+    console.log = () => {};
+    const calls = [];
+    process.chdir(dir);
+    main(['v0.1-s1', 'abc1234'], { runner: makeWorktreeStub({ calls }) });
+
+    const removeAt = calls.findIndex((c) => c.startsWith('git worktree remove'));
+    const deleteAt = calls.findIndex((c) => /^git branch -[dD] /.test(c));
+    assert.notEqual(removeAt, -1, `expected a worktree remove, got: ${JSON.stringify(calls)}`);
+    assert.notEqual(deleteAt, -1, `expected a branch delete, got: ${JSON.stringify(calls)}`);
+    // Ordering is load-bearing, not cosmetic: git refuses to delete a branch
+    // that is checked out in another worktree.
+    assert.ok(removeAt < deleteAt, `worktree removal must precede branch delete: ${JSON.stringify(calls)}`);
+
+    assert.match(fs.readFileSync(path.join(dir, 'docs/STATUS.md'), 'utf8'), /status: merged \(abc1234\)/);
+  } finally {
+    process.chdir(originalCwd);
+    console.log = originalLog;
+    cleanup();
+  }
+});
+
+test('main() still deletes the branch when no worktree holds it', () => {
+  const { dir, cleanup } = makeStatusDir();
+  const originalCwd = process.cwd();
+  const originalLog = console.log;
+  try {
+    console.log = () => {};
+    const calls = [];
+    // Porcelain listing the main worktree only — the ordinary case.
+    const porcelain = [
+      'worktree C:/repos/asdlc',
+      'HEAD 1111111111111111111111111111111111111111',
+      'branch refs/heads/main',
+    ].join('\n');
+    process.chdir(dir);
+    main(['v0.1-s1', 'abc1234'], { runner: makeWorktreeStub({ calls, porcelain }) });
+
+    assert.ok(
+      !calls.some((c) => c.startsWith('git worktree remove')),
+      'nothing to remove when no worktree holds the branch',
+    );
+    assert.ok(
+      calls.some((c) => /^git branch -[dD] sprint\/v0\.1-s1$/.test(c)),
+      `branch delete must still happen, got: ${JSON.stringify(calls)}`,
+    );
+    assert.match(fs.readFileSync(path.join(dir, 'docs/STATUS.md'), 'utf8'), /status: merged \(abc1234\)/);
+  } finally {
+    process.chdir(originalCwd);
+    console.log = originalLog;
+    cleanup();
+  }
+});
+
+test('main() refuses a dirty worktree, touching nothing, and names the files at risk', () => {
+  const { dir, cleanup } = makeStatusDir();
+  const originalCwd = process.cwd();
+  const originalLog = console.log;
+  const originalError = console.error;
+  const originalExitCode = process.exitCode;
+  try {
+    const errors = [];
+    console.log = () => {};
+    console.error = (...args) => errors.push(args.join(' '));
+    const calls = [];
+    process.chdir(dir);
+    main(['v0.1-s1', 'abc1234'], {
+      runner: makeWorktreeStub({ calls, statusOutput: ' M src/app.js\n?? notes.md' }),
+    });
+
+    assert.ok(
+      !calls.some((c) => /^git branch -[dD] /.test(c)),
+      `branch must survive a refusal, got: ${JSON.stringify(calls)}`,
+    );
+    // Refusing after STATUS.md was rewritten would strand the operator: the
+    // re-run needed after --force would throw "no awaiting-merge entry".
+    assert.match(fs.readFileSync(path.join(dir, 'docs/STATUS.md'), 'utf8'), /status: awaiting-merge/);
+    const text = errors.join('\n');
+    assert.match(text, /src\/app\.js/);
+    assert.match(text, /notes\.md/);
+    assert.match(text, /--force/);
+    assert.equal(process.exitCode, 1);
+  } finally {
+    process.chdir(originalCwd);
+    console.log = originalLog;
+    console.error = originalError;
+    process.exitCode = originalExitCode;
+    cleanup();
+  }
+});
+
+test('main() --force removes the dirty worktree and completes the sprint', () => {
+  const { dir, cleanup } = makeStatusDir();
+  const originalCwd = process.cwd();
+  const originalLog = console.log;
+  try {
+    console.log = () => {};
+    const calls = [];
+    process.chdir(dir);
+    // --force is passed first to prove it is stripped before positional parsing.
+    main(['--force', 'v0.1-s1', 'abc1234'], {
+      runner: makeWorktreeStub({ calls, statusOutput: ' M src/app.js' }),
+    });
+
+    assert.ok(
+      calls.includes('git worktree remove --force C:/repos/asdlc-wt/v0.1-s1'),
+      `expected a forced remove, got: ${JSON.stringify(calls)}`,
+    );
+    assert.ok(
+      calls.some((c) => /^git branch -[dD] sprint\/v0\.1-s1$/.test(c)),
+      `expected the branch delete, got: ${JSON.stringify(calls)}`,
+    );
+    assert.match(fs.readFileSync(path.join(dir, 'docs/STATUS.md'), 'utf8'), /status: merged \(abc1234\)/);
+  } finally {
+    process.chdir(originalCwd);
+    console.log = originalLog;
     cleanup();
   }
 });

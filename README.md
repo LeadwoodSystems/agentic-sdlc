@@ -31,7 +31,10 @@ answer one question cheaply: *where were we, and what do I do next?*
 1. **Plan** → `docs/superpowers/plans/` (brainstorm → write the plan).
 2. **Build test-first.**
 3. **Verify with real evidence** — commands run, live output, test counts. Not assertions.
-4. **Adversarial review** for risky or security-sensitive work.
+4. **Adversarial review** — *offered* when the diff or issue warrants it (security surface,
+   auth, data handling, wide blast radius), with its rough cost stated. Never mandatory:
+   a review that fires on every sprint and can't run in a subagent-less session produces a
+   merge-blocking decision instead of a review, which is why that mandate was retired.
 5. **Handoff** → an evidence-bearing `docs/handoffs/<sprint>.md` so a fresh session can
    resume exactly here.
 6. **Checkpoint** → tests pass, handoff exists, `docs/STATUS.md` updated, commit staged.
@@ -47,7 +50,7 @@ answer one question cheaply: *where were we, and what do I do next?*
 | `/sprint [name]` | Start a sprint — runs the sprint gate, scaffolds its plan, kicks off brainstorm → plan |
 | `/checkpoint` | Non-blocking gate: tests + handoff-exists + STATUS/CLAUDE.md pointer script, then stage |
 | `/handoff` | Generate an evidence-bearing handoff from the template |
-| `/asdlc-hygiene [trunk] [version]` | On-demand audit: stale branches, default-branch drift, untriaged issues, milestone/version sync |
+| `/asdlc-hygiene [trunk] [version]` | On-demand audit: stale branches, stale worktrees, default-branch drift, untriaged issues, milestone/version sync |
 
 ## State model — one source of truth
 
@@ -59,6 +62,25 @@ answer one question cheaply: *where were we, and what do I do next?*
 
 Exactly one source of truth for "where things are": the newest handoff. Don't hand-sync
 the same status into `CLAUDE.md`, memory, and a handoff — that drifts.
+
+**Numbers are measured, not typed.** Every count, timing and port `CLAUDE.md` asserts is
+declared in `.asdlc/facts.json` as a *command to run*; `scripts/asdlc/facts.js` executes
+them and owns the `<!-- asdlc:facts:auto -->` span. A command that fails writes
+`**UNMEASURED**` with the reason rather than leaving the old value — a stale number that
+looks freshly measured is worse than no automation. `scripts/asdlc/asdlc-lint.js` fails
+when the block is absent or stale, when a retired rule is still holding a numbered slot,
+when a rule runs past ~120 words, or when two of the file's own assertions contradict
+each other.
+
+**Operating rules carry stable slugs, not numbers** — cite `#git`, not "rule 2". Numbering
+means a retired rule must be embalmed in its slot forever so old citations keep resolving;
+with slugs it is simply deleted and a stale citation fails loudly.
+
+**One sprint = one worktree = one session.** A branch can be checked out in exactly one
+working tree at a time, so the worktree — not the session — is the safe unit of
+concurrency: two sessions in one directory fight over HEAD, two sessions in two worktrees
+cannot. `new-sprint.js` refuses to start a sprint over a stale worktree, `finish-sprint.js`
+removes the worktree before deleting the branch, and `/asdlc-hygiene` audits for orphans.
 
 Plans and handoffs share one naming scheme: `vMAJOR.MINOR-sN-<slug>.md`. When a milestone
 closes, run `node scripts/asdlc/archive-sprint-docs.js <milestone>` to move each type's files
@@ -99,8 +121,14 @@ Or point Claude Code at this repo directly once it's public:
 - Skipping the handoff "to save time" → the next session can't resume; this is the one
   step never to cut.
 - Pushing straight to `main`, or bundling many sprints into one PR.
-- Letting merged sprint branches pile up, or milestones drift from the sprint version
-  scheme → run `/asdlc-hygiene` periodically to catch both.
+- Running two sessions in the same working tree to get parallelism → they fight over
+  HEAD. One worktree per sprint, and retire it when the sprint ends: an orphan worktree
+  survived a week at 1.15 GB holding 14 uncommitted files nobody could see.
+- Typing a test count, timing, or port into `CLAUDE.md` → it's wrong within weeks and
+  still reads as authoritative. Declare it in `.asdlc/facts.json` and let `facts.js`
+  measure it.
+- Letting merged sprint branches or worktrees pile up, or milestones drift from the
+  sprint version scheme → run `/asdlc-hygiene` periodically to catch all three.
 - Hard-blocking hooks for routine actions → prefer non-blocking helper commands; the
   one exception is `new-sprint.js`'s gate, which *does* hard-block starting a new sprint
   on top of an uncommitted one — that specific failure mode was observed in practice and
@@ -109,6 +137,9 @@ Or point Claude Code at this repo directly once it's public:
 ## Layout
 
 ```
+.asdlc/
+  facts.json           the numbers CLAUDE.md may assert, as commands to run
+  policy/execution-classes.yaml   execution-class → model mapping (agent-read, unparsed)
 .claude-plugin/
   plugin.json          plugin manifest
   marketplace.json      local marketplace manifest (self-hosting single plugin)
@@ -123,11 +154,15 @@ commands/
 scripts/asdlc/
   lib/exec.js            shared git/gh exec helper
   lib/profile-block.js    execution-profile block parse/upsert
+  lib/marker-block.js     generic `<!-- asdlc:… -->` span upsert + injection guard
+  lib/branch-status.js    is-this-branch-merged (squash-merge aware)
   new-sprint.js           sprint-start gate + branch/plan scaffolding
   checkpoint-hooks.js     STATUS.md append + CLAUDE.md pointer rewrite
-  finish-sprint.js        post-merge status flip, branch cleanup, milestone check
-  gh-hygiene.js           read-only hygiene audit
+  finish-sprint.js        post-merge worktree removal, status flip, branch cleanup
+  gh-hygiene.js           read-only hygiene audit (branches, worktrees, issues, milestones)
   archive-sprint-docs.js  milestone-scoped archival
+  facts.js                measure .asdlc/facts.json → CLAUDE.md facts block
+  asdlc-lint.js           durable-context lint (stale facts, numbered rules, contradictions)
 skills/agentic-sdlc/
   SKILL.md               the skill Claude Code loads
   references/            state model + plan/handoff/CLAUDE.md templates
