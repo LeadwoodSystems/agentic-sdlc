@@ -72,6 +72,27 @@ function assertCleanTree(cwd, { runner = run } = {}) {
   }
 }
 
+// One concatenation, used for both the baseline and the mutated run. They must
+// be built identically: "absent from the baseline" is only a guarantee about
+// "present in the mutated run" if both statements are about the same string.
+function combined({ stdout, stderr }) {
+  return `${stdout}${stderr}`;
+}
+
+// The unmutated run of this mutation's test command. Memoized per argv, because
+// mutation cost is dominated by test bootstrap — measured in this repo at 16.7s
+// for a test that builds real git fixture repos against 0.2s for a library one —
+// and a per-mutation baseline would double every manifest's cost instead of
+// adding one run per distinct arg-set.
+function getBaseline(workdir, manifest, mutation, { runner, baselines }) {
+  const args = [...manifest.testCommand.slice(1), ...(mutation.testArgs || [])];
+  const key = JSON.stringify([manifest.testCommand[0], ...args]);
+  if (!baselines.has(key)) {
+    baselines.set(key, runner(manifest.testCommand[0], args, { cwd: workdir, env: manifest.env }));
+  }
+  return baselines.get(key);
+}
+
 function classify(status, stdout, stderr, expectRed) {
   if (status === 0) return 'GREEN';
   // The substring check is what separates "it went red" from "it went red FOR
@@ -95,7 +116,7 @@ function selectMutations(mutations, only) {
   });
 }
 
-function runOne(workdir, manifest, mutation, { runner, dryRun }) {
+function runOne(workdir, manifest, mutation, { runner, dryRun, baselines }) {
   const absPath = path.resolve(workdir, mutation.file);
   const base = {
     id: mutation.id,
@@ -117,6 +138,18 @@ function runOne(workdir, manifest, mutation, { runner, dryRun }) {
   // is not looking at, so checking them all without paying for a single test
   // run is the cheapest thing this tool does.
   if (dryRun) return { ...base, verdict: 'ANCHOR-OK' };
+
+  // The test command is run unmutated first. Everything below this point is a
+  // statement about the DIFFERENCE the mutation made, and a difference needs
+  // something to differ from.
+  const baseline = getBaseline(workdir, manifest, mutation, { runner, baselines });
+
+  // Nothing is measurable against a red baseline: the mutated run would fail
+  // too, and expectRed's presence would say nothing about which failure
+  // produced it. Recorded per mutation rather than thrown, because a red
+  // baseline belongs to one testArgs set and the loop already continues past a
+  // bad anchor for the same reason.
+  if (baseline.status !== 0) return { ...base, verdict: 'BASELINE-RED' };
 
   const cmd = manifest.testCommand[0];
   const args = [...manifest.testCommand.slice(1), ...(mutation.testArgs || [])];
@@ -160,12 +193,13 @@ function runMutations(cwd, manifest, { runner = runCapture, only = null, dryRun 
   const selected = selectMutations(manifest.mutations, only);
 
   const results = [];
+  const baselines = new Map();
   for (const mutation of selected) {
     // A bad anchor records its verdict and the loop continues. Aborting on the
     // first one would make a twelve-mutation manifest cost twelve cycles to
     // debug, and anchors written blind in one pass fail in batches. The RUN is
     // still marked not-evidence, via summarize().isEvidence.
-    results.push(runOne(workdir, manifest, mutation, { runner, dryRun }));
+    results.push(runOne(workdir, manifest, mutation, { runner, dryRun, baselines }));
   }
   return results;
 }

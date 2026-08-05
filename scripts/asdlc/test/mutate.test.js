@@ -152,15 +152,20 @@ test('a mutation identical to the source is NO-OP and runs no test', async (t) =
 
 test('the runner receives testCommand followed by the mutation testArgs', async (t) => {
   // Requirement 1.4.7: the script never chooses the test command. It appends
-  // and knows nothing about any test framework.
+  // and knows nothing about any test framework. Both invocations — the baseline
+  // and the mutated run — must use the same argv, or "absent from the baseline"
+  // is a claim about a command that was never the one under test.
   const repo = await fixtureWithSource();
   t.after(repo.cleanup);
-  let seen = null;
+  const seen = [];
   runMutations(repo.dir, manifest([BREAKS_IT]), {
-    runner: (cmd, args) => { seen = { cmd, args }; return { status: 1, stdout: 'hi ada', stderr: '' }; },
+    runner: (cmd, args) => { seen.push({ cmd, args }); return { status: 0, stdout: '', stderr: '' }; },
   });
-  assert.equal(seen.cmd, process.execPath);
-  assert.deepEqual(seen.args, ['--no-warnings', 'check.js']);
+  assert.equal(seen.length, 2, 'expected a baseline run and a mutated run');
+  for (const call of seen) {
+    assert.equal(call.cmd, process.execPath);
+    assert.deepEqual(call.args, ['--no-warnings', 'check.js']);
+  }
 });
 
 test('--only runs just the named mutations', async (t) => {
@@ -260,11 +265,17 @@ test('a test command that rewrites the source under test aborts the run', async 
   const repo = await fixtureWithSource();
   t.after(repo.cleanup);
   const target = path.join(repo.dir, 'src.js');
+  let call = 0;
   assert.throws(() => runMutations(repo.dir, manifest([
     { ...BREAKS_IT, id: 'A' },
     { ...BREAKS_IT, id: 'B', find: 'function greet(name) {', replace: 'function greet(name) { // x' },
   ]), {
     runner: () => {
+      call += 1;
+      // The baseline must come back green: a red one stops the run at
+      // BASELINE-RED and no mutation ever reaches disk, while the
+      // contamination this test is about can only happen while one is applied.
+      if (call === 1) return { status: 0, stdout: '', stderr: '' };
       fs.writeFileSync(target, 'clobbered by the test command');
       return { status: 1, stdout: 'hi ada', stderr: '' };
     },
@@ -302,4 +313,67 @@ test('parseArgs defaults only to null rather than an empty list', () => {
 
 test('parseArgs requires a manifest path', () => {
   assert.throws(() => parseArgs(['--json']), /Usage:/);
+});
+
+test('a test command that already fails unmutated is BASELINE-RED', async (t) => {
+  const repo = await fixtureWithSource();
+  t.after(repo.cleanup);
+  const results = runMutations(repo.dir, manifest([BREAKS_IT]), {
+    runner: () => ({ status: 1, stdout: 'the suite was already red\n', stderr: '' }),
+  });
+  assert.equal(
+    results[0].verdict,
+    'BASELINE-RED',
+    'a suite that fails before anything is mutated cannot tell a real RED from its own noise',
+  );
+});
+
+test('a BASELINE-RED never applies the mutation', async (t) => {
+  // The gate must cost exactly one invocation and leave no trace: a mutated file
+  // written and reverted for a run nobody can interpret is pure risk.
+  const repo = await fixtureWithSource();
+  t.after(repo.cleanup);
+  let calls = 0;
+  const results = runMutations(repo.dir, manifest([BREAKS_IT]), {
+    runner: () => { calls += 1; return { status: 1, stdout: '', stderr: '' }; },
+  });
+  assert.equal(calls, 1, 'the baseline must run and the mutated test must not');
+  assert.equal(results[0].durationMs, 0);
+  assert.equal(fs.readFileSync(path.join(repo.dir, 'src.js'), 'utf8'), SRC);
+});
+
+test('the baseline runs once for mutations sharing a testArgs set', async (t) => {
+  // Mutation cost is dominated by test bootstrap. A baseline per mutation would
+  // double the cost of every manifest; a baseline per arg-set adds one run.
+  const repo = await fixtureWithSource();
+  t.after(repo.cleanup);
+  let calls = 0;
+  runMutations(repo.dir, manifest([
+    { ...BREAKS_IT, id: 'A' },
+    { ...BREAKS_IT, id: 'B', find: 'function greet(name) {', replace: 'function greet(name) { // x' },
+  ]), {
+    runner: () => { calls += 1; return { status: 0, stdout: '', stderr: '' }; },
+  });
+  assert.equal(calls, 3, 'expected one shared baseline plus one run per mutation');
+});
+
+test('mutations with different testArgs each get their own baseline', async (t) => {
+  // The memo key must include testArgs: reusing one arg-set's baseline for
+  // another measures absence in output the second command never produced.
+  const repo = await fixtureWithSource();
+  t.after(repo.cleanup);
+  let calls = 0;
+  runMutations(repo.dir, manifest([
+    { ...BREAKS_IT, id: 'A', testArgs: ['check.js'] },
+    {
+      ...BREAKS_IT,
+      id: 'B',
+      find: 'function greet(name) {',
+      replace: 'function greet(name) { // x',
+      testArgs: ['check.js', '--extra'],
+    },
+  ]), {
+    runner: () => { calls += 1; return { status: 0, stdout: '', stderr: '' }; },
+  });
+  assert.equal(calls, 4, 'expected a separate baseline per distinct testArgs set');
 });
