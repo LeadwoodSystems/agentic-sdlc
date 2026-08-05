@@ -1,0 +1,35 @@
+{
+  "testCommand": ["node", "--test"],
+  "mutations": [
+    {
+      "id": "INERT",
+      "why": "The gate claims to refuse an expectRed that already appears in a green run. That claim is the sprint: without it every RED-AS-PREDICTED in this repo is only 'the exit code changed', which is the check expectRed was written to replace.",
+      "file": "scripts/asdlc/mutate.js",
+      "find": "  if (combined(baseline).includes(mutation.expectRed)) {",
+      "replace": "  if (false) {",
+      "testArgs": ["scripts/asdlc/test/mutate.test.js"],
+      "label": "mutate:expect-red-inert",
+      "expectRed": "an anchor present in green output cannot tell a red from a green"
+    },
+    {
+      "id": "BASELINE",
+      "why": "BASELINE-RED claims to catch a suite that fails before anything is mutated. Without it a red baseline plus a red mutated run is indistinguishable from a genuine RED, and the absence check underneath it becomes uninterpretable.",
+      "file": "scripts/asdlc/mutate.js",
+      "find": "  if (baseline.status !== 0) return { ...base, verdict: 'BASELINE-RED' };",
+      "replace": "  if (false) return { ...base, verdict: 'BASELINE-RED' };",
+      "testArgs": ["scripts/asdlc/test/mutate.test.js"],
+      "label": "mutate:baseline-red",
+      "expectRed": "a suite that fails before anything is mutated cannot tell a real RED"
+    },
+    {
+      "id": "MEMO",
+      "why": "The baseline is memoized per testArgs set. Dropping testArgs from the key reuses one command's baseline for another, so absence is asserted against output the second command never produced -- a false EXPECT-RED-INERT clearance.",
+      "file": "scripts/asdlc/mutate.js",
+      "find": "  const key = JSON.stringify([manifest.testCommand[0], ...args]);",
+      "replace": "  const key = JSON.stringify([manifest.testCommand[0]]);",
+      "testArgs": ["scripts/asdlc/test/mutate.test.js"],
+      "label": "mutate:baseline-memo-key",
+      "expectRed": "expected a separate baseline per distinct testArgs set"
+    }
+  ]
+}

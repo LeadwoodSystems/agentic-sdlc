@@ -57,6 +57,12 @@ must answer it in writing.
    before the run and match against it. "It went red" and "it went red because the recap
    ran before the send was parked" are different claims, and only the second is evidence.
    A red for any other reason is collateral damage — discard it, do not bank it.
+   **Anchor on text that appears only on failure.** An `expectRed` that shows up in a green
+   run cannot tell red from green: `node --test` prints a passing test's *title*, so a
+   title-shaped anchor is present in every run and the check silently becomes "did the exit
+   code change". `mutate.js` now runs the command unmutated first and reports
+   `EXPECT-RED-INERT` rather than letting that pass — but the fix is to anchor on an
+   assertion message.
 3. **Verify the revert after *every* mutation, not at the end.** One un-reverted mutation
    silently poisons every result after it, and a run that discovers this at the end has to
    throw all of them away.
@@ -100,7 +106,7 @@ author of the claim can pose.
     "find": "    # 6. The customer-facing send.",            // literal; authored with \n
     "replace": "    result.recap = spec.recap()\n\n    # 6. The customer-facing send.",
     "testArgs": ["tests/test_emit.py", "-k", "full_sequence"],
-    "expectRed": "the recap must run after the send is parked"
+    "expectRed": "AssertionError: recap ran before send was parked"  // failure text, never a test name
   }]
 }
 ```
@@ -115,13 +121,15 @@ node scripts/asdlc/mutate.js manifest.json --json      # same, structured
 at, so they fail in batches; checking them all costs one second and saves a full cycle.
 
 Verdicts: `RED-AS-PREDICTED` · `RED-WRONG-REASON` (discard) · `GREEN` (decide: HOLLOW or
-INERT) · `ANCHOR-MISS` · `AMBIGUOUS-ANCHOR` · `NO-OP` · `DIRTY-REVERT`. The last four mean
-**the run is not evidence** and the process exits non-zero.
+INERT) · `ANCHOR-MISS` · `AMBIGUOUS-ANCHOR` · `NO-OP` · `EXPECT-RED-INERT` · `BASELINE-RED` ·
+`DIRTY-REVERT`. The last six mean **the run is not evidence** and the process exits non-zero.
+`EXPECT-RED-INERT` means your anchor appears in a green run; `BASELINE-RED` means the suite
+was already failing, so nothing could have been measured against it.
 
 `testArgs` is appended to `testCommand` verbatim, so the script knows nothing about any
 test framework — `-k` for pytest, `--test-name-pattern` for `node:test`, `-run` for Go.
 
-### Two traps that cost real time
+### Traps that cost real time
 
 - **Line endings.** `find` is authored with `\n` and your files may be CRLF. `mutate.js`
   converts the anchor into the file's own ending, so this is handled — but a hand-rolled
@@ -132,6 +140,10 @@ test framework — `-k` for pytest, `--test-name-pattern` for `node:test`, `-run
   inherits it, reports over IPC, and **exits 0 with empty output**. Every mutation came
   back GREEN — "all these tests are hollow" — from an artifact of the harness. If a whole
   run goes uniformly GREEN, suspect the instrument before the tests.
+- **The baseline is one extra run per distinct `testArgs` set**, not per mutation. Group
+  mutations that share a test command in one manifest and the cost is a single extra run;
+  give every mutation its own `testArgs` and you pay it every time. On the 15-16s DB-gated
+  tier below, that is the difference between +16s and +3 minutes.
 
 ## Choosing which tests to mutate — the cost lever
 
