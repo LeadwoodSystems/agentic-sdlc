@@ -18,7 +18,7 @@ bug in the skeleton — fix it there first.
 
 ## Where the build is
 <!-- asdlc:current-state:auto -->
-**Current state:** mutation verdicts are now measured rather than reasoned - mutate.js runs the test command unmutated first and refuses an expectRed that already appears in a green run (EXPECT-RED-INERT) or a suite that was already failing (BASELINE-RED); the v0.2-s3 manifest was re-anchored on assertion messages and re-run, and all three of its verdicts held — see [handoff](docs/handoffs/v0.2-s5-mutation-baseline-gate.md)
+**Current state:** checkpoint-hooks now writes through lib/marker-block.js so a checkpoint preserves CRLF; the plugin's own command surface is being dogfooded rather than hand-copied, and three subset enumerations plus the plan-template copy are gone — see [handoff](docs/handoffs/v0.2-s6-invariant-drift.md)
 <!-- /asdlc:current-state:auto -->
 
 To resume, read the **latest** `docs/handoffs/` file (single source of truth). Full
