@@ -20,6 +20,8 @@ const VERDICT_ORDER = [
   'ANCHOR-MISS',
   'AMBIGUOUS-ANCHOR',
   'NO-OP',
+  'EXPECT-RED-INERT',
+  'BASELINE-RED',
   'DIRTY-REVERT',
 ];
 
@@ -28,7 +30,9 @@ const VERDICT_ORDER = [
 // RED-WRONG-REASON is pointedly not in this set: it is a finding about the
 // mutation ("something else broke; discard it"), and the run around it is still
 // trustworthy.
-const NOT_EVIDENCE = new Set(['ANCHOR-MISS', 'AMBIGUOUS-ANCHOR', 'NO-OP', 'DIRTY-REVERT']);
+const NOT_EVIDENCE = new Set([
+  'ANCHOR-MISS', 'AMBIGUOUS-ANCHOR', 'NO-OP', 'EXPECT-RED-INERT', 'BASELINE-RED', 'DIRTY-REVERT',
+]);
 
 // The verdicts that mean a test command actually ran, and therefore that a file
 // was written and reverted. Used to keep the summary from reporting "reverts
@@ -51,6 +55,10 @@ const EVIDENCE_TEXT = {
   'ANCHOR-MISS': 'find is not present in the file — the run is not evidence.',
   'AMBIGUOUS-ANCHOR': 'find occurs more than once — the run is not evidence.',
   'NO-OP': 'replace produced an identical file — the mutation cannot change behaviour.',
+  'EXPECT-RED-INERT': 'expectRed already appears in a green run of this test command, so a '
+    + 'match proves nothing — re-anchor it on text that appears only on failure.',
+  'BASELINE-RED': 'the test command fails before any mutation is applied — fix the suite '
+    + 'first; no verdict measured against a red baseline means anything.',
   'DIRTY-REVERT': 'the file did not revert cleanly — the run was aborted.',
 };
 

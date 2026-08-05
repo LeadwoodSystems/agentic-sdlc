@@ -5,6 +5,7 @@ const {
   renderMarkdown,
   renderJson,
   summarize,
+  evidenceFor,
 } = require('../../lib/report');
 
 const RESULTS = [
@@ -132,4 +133,36 @@ test('an empty result set is reported as such rather than as a clean run', () =>
   // A run that executed nothing must not read like a run that passed.
   assert.match(renderText([]), /0 mutations/);
   assert.equal(summarize([]).isEvidence, true);
+});
+
+test('EXPECT-RED-INERT makes the run not evidence', () => {
+  const { isEvidence } = summarize([{ id: 'A', verdict: 'EXPECT-RED-INERT' }]);
+  assert.equal(
+    isEvidence,
+    false,
+    'an anchor that appears in green output cannot discriminate, so the run it produced is not evidence',
+  );
+});
+
+test('BASELINE-RED makes the run not evidence', () => {
+  const { isEvidence } = summarize([{ id: 'A', verdict: 'BASELINE-RED' }]);
+  assert.equal(
+    isEvidence,
+    false,
+    'nothing can be measured against a test command that already fails unmutated',
+  );
+});
+
+test('both new verdicts explain themselves rather than printing a bare label', () => {
+  assert.match(evidenceFor({ verdict: 'EXPECT-RED-INERT' }), /green run/);
+  assert.match(evidenceFor({ verdict: 'BASELINE-RED' }), /before any mutation/);
+});
+
+test('both new verdicts are marked as needing action in the text report', () => {
+  const text = renderText([
+    { id: 'A', verdict: 'EXPECT-RED-INERT' },
+    { id: 'B', verdict: 'BASELINE-RED' },
+  ]);
+  // `!!` is what keeps a problem line from scrolling past looking like a RED line.
+  assert.equal((text.match(/!!/g) || []).length, 2);
 });
