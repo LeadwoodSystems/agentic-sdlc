@@ -1,0 +1,35 @@
+{
+  "testCommand": ["node", "--test"],
+  "mutations": [
+    {
+      "id": "EOL",
+      "why": "The CRLF round-trip test claims an anchor authored with LF matches a CRLF source. Removing the line-ending conversion is the exact bug that lost 3 of 8 mutations in gaw v0.13-s8 -- if the test cannot see it, it is not guarding what it says.",
+      "file": "scripts/asdlc/lib/apply-mutation.js",
+      "find": "  const toEol = (s) => String(s).replace(/\\r\\n/g, '\\n').replace(/\\n/g, eol);",
+      "replace": "  const toEol = (s) => String(s);",
+      "testArgs": ["scripts/asdlc/test/lib/apply-mutation.test.js"],
+      "label": "apply-mutation:eol",
+      "expectRed": "an anchor authored with LF matches a CRLF source"
+    },
+    {
+      "id": "DUP",
+      "why": "The manifest validator claims to reject duplicate mutation ids. Results are keyed by id and --only selects by id, so a duplicate silently drops one of two mutations -- a skipped mutation that reads as a clean run.",
+      "file": "scripts/asdlc/lib/manifest.js",
+      "find": "  } else if (seenIds.has(mutation.id)) {",
+      "replace": "  } else if (false) {",
+      "testArgs": ["scripts/asdlc/test/lib/manifest.test.js"],
+      "label": "manifest:duplicate-id",
+      "expectRed": "duplicate ids are rejected"
+    },
+    {
+      "id": "REVERT",
+      "why": "verifyRestored claims to catch a revert whose bytes on disk differ from what was written. That gap -- 'we wrote the original back' versus 'the original is on disk' -- is the encoding corruption that motivated this whole tool.",
+      "file": "scripts/asdlc/mutate.js",
+      "find": "  if (onDisk !== before) {",
+      "replace": "  if (false) {",
+      "testArgs": ["scripts/asdlc/test/mutate.test.js"],
+      "label": "mutate:verify-restored",
+      "expectRed": "verifyRestored throws DIRTY-REVERT when the bytes on disk differ"
+    }
+  ]
+}
