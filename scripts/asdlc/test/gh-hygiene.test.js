@@ -655,12 +655,18 @@ test('findFailingScheduledWorkflows reads the last completed run, not the in-fli
 });
 
 test('findFailingScheduledWorkflows clears a workflow whose newest completed run succeeded', () => {
-  const runner = () => JSON.stringify([
-    { workflowName: 'nightly', status: 'completed', conclusion: 'success', createdAt: '2026-08-05T02:00:00Z' },
-    { workflowName: 'nightly', status: 'completed', conclusion: 'failure', createdAt: '2026-08-04T02:00:00Z' },
-  ]);
+  let called = 0;
+  const runner = () => {
+    called += 1;
+    return JSON.stringify([
+      { workflowName: 'nightly', status: 'completed', conclusion: 'success', createdAt: '2026-08-05T02:00:00Z' },
+      { workflowName: 'nightly', status: 'completed', conclusion: 'failure', createdAt: '2026-08-04T02:00:00Z' },
+    ]);
+  };
   // "most recent", not "any" — a fixed workflow must stop being reported.
   assert.deepEqual(findFailingScheduledWorkflows('/repo', { runner }), []);
+  // An empty result must mean "queried and found nothing wrong", not "returned [] blindly".
+  assert.equal(called, 1, 'must query gh, not return [] without looking');
 });
 
 test('findFailingScheduledWorkflows reports each workflow independently', () => {
