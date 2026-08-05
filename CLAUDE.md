@@ -18,7 +18,7 @@ bug in the skeleton — fix it there first.
 
 ## Where the build is
 <!-- asdlc:current-state:auto -->
-**Current state:** Worktree/branch lifecycle (squash-merge detection, worktree audit, gate reorder) + measured facts block, lint, and this repo's own CLAUDE.md — see [handoff](docs/handoffs/v0.2-s2-worktrees-and-facts.md)
+**Current state:** mutate.js: manifest-driven mutation runs with EOL-preserving anchors, revert verification and a not-evidence exit code, plus the test-mutation-evidence reference and /checkpoint hook — see [handoff](docs/handoffs/v0.2-s3-mutation-tooling.md)
 <!-- /asdlc:current-state:auto -->
 
 To resume, read the **latest** `docs/handoffs/` file (single source of truth). Full

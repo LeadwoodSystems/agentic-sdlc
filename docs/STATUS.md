@@ -6,3 +6,4 @@ not by typing into this file.
 
 - 2026-08-04 **v0.2-s1** — Execution Profiles: /profile-issue, lib/profile-block.js, execution-classes policy; GAW v0.13 backlog 33/33 profiled — [handoff](docs/handoffs/v0.2-s1-execution-profiles.md) — status: merged (322ead8)
 - 2026-08-05 **v0.2-s2** — Worktree/branch lifecycle (squash-merge detection, worktree audit, gate reorder) + measured facts block, lint, and this repo's own CLAUDE.md — [handoff](docs/handoffs/v0.2-s2-worktrees-and-facts.md) — status: merged (44f9a3d)
+- 2026-08-05 **v0.2-s3** — mutate.js: manifest-driven mutation runs with EOL-preserving anchors, revert verification and a not-evidence exit code, plus the test-mutation-evidence reference and /checkpoint hook — [handoff](docs/handoffs/v0.2-s3-mutation-tooling.md) — status: awaiting-merge
