@@ -1,0 +1,25 @@
+{
+  "testCommand": ["node", "--test"],
+  "mutations": [
+    {
+      "id": "ENUM",
+      "why": "The drift guard claims to catch step 6 naming individual files. That claim is the whole point of the change -- v0.2-s3 shipped four files step 6 never listed, so a guard that cannot see an enumeration re-opens the exact hole it was written to close.",
+      "file": "commands/bootstrap-asdlc.md",
+      "find": "   `scripts/asdlc/`, including the `lib/` subdirectory and excluding `test/` (skip any",
+      "replace": "   `scripts/asdlc/`, including `lib/exec.js` and excluding `test/` (skip any",
+      "testArgs": ["scripts/asdlc/test/bootstrap-manifest.test.js"],
+      "label": "bootstrap:enumeration",
+      "expectRed": "names no individual script file"
+    },
+    {
+      "id": "INFLIGHT",
+      "why": "The scheduled-workflow check claims to read the last COMPLETED run. Dropping the status filter makes an in-flight run (conclusion null) win, which reports a healthy workflow as failing and a failing one as fine -- a check that manufactures its own findings.",
+      "file": "scripts/asdlc/gh-hygiene.js",
+      "find": "    if (entry.status !== 'completed') continue;",
+      "replace": "    if (false) continue;",
+      "testArgs": ["scripts/asdlc/test/gh-hygiene.test.js"],
+      "label": "gh-hygiene:in-flight",
+      "expectRed": "reads the last completed run, not the in-flight one"
+    }
+  ]
+}
