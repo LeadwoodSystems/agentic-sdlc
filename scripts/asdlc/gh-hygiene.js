@@ -185,12 +185,57 @@ function checkMilestoneVersionSync(cwd, currentSprintVersion, { runner = run } =
   return { inSync: milestoneVersions.includes(currentSprintVersion), milestoneVersions };
 }
 
-// runHygieneAudit aggregates five independent checks. Three (findStaleBranches,
+// A scheduled workflow fails silently by construction — nobody is waiting on its
+// output — so it can stay broken for months, and the first symptom is an absent
+// report everyone assumed was clean. The motivating case: a test red in a nightly
+// tier for roughly twelve sprints in a project whose CLAUDE.md said to check it.
+// Prose instructions to check a thing are what loop-hardening was written to replace.
+function findFailingScheduledWorkflows(cwd, { runner = run } = {}) {
+  const out = runner(
+    'gh',
+    [
+      'run', 'list',
+      // Filtered server-side, not client-side over a mixed-event list: with
+      // `--limit N` across all events a weekly workflow falls off the end on a
+      // busy repo and reports as absent, which reads as clean.
+      '--event', 'schedule',
+      '--limit', '50',
+      // `workflowName` is the workflow; `name` is the run's display title.
+      '--json', 'workflowName,conclusion,status,createdAt',
+    ],
+    { cwd },
+  );
+
+  const latest = new Map();
+  for (const entry of JSON.parse(out)) {
+    // A run still in flight has no conclusion yet. The most recent *completed*
+    // run is the one carrying a verdict; guessing from an in-flight run would
+    // either invent a failure or mask one.
+    if (entry.status !== 'completed') continue;
+    const previous = latest.get(entry.workflowName);
+    // createdAt is ISO-8601 UTC ("2026-08-05T02:00:00Z"), so lexicographic
+    // comparison is chronological — no Date parsing needed.
+    if (!previous || entry.createdAt > previous.createdAt) {
+      latest.set(entry.workflowName, entry);
+    }
+  }
+
+  const findings = [];
+  for (const [workflow, entry] of latest) {
+    if (entry.conclusion !== 'success') {
+      findings.push({ workflow, conclusion: entry.conclusion, createdAt: entry.createdAt });
+    }
+  }
+  return findings;
+}
+
+// runHygieneAudit aggregates six independent checks. Three (findStaleBranches,
 // findStaleWorktrees, checkDefaultBranch) only need local git and will succeed
 // in any real repo.
-// The other two (findUntriagedIssues, checkMilestoneVersionSync) shell out to
-// `gh` and depend on GitHub auth, network access, and a GitHub remote existing
-// — any of which can be missing/broken independently of the git-only checks.
+// The other three (findUntriagedIssues, checkMilestoneVersionSync,
+// findFailingScheduledWorkflows) shell out to `gh` and depend on GitHub auth,
+// network access, and a GitHub remote existing — any of which can be
+// missing/broken independently of the git-only checks.
 //
 // This is a read-only *audit/report* tool, not a hard gate: its whole value is
 // "tell the human as much as you can find out". Letting one gh-based check's
@@ -200,8 +245,8 @@ function checkMilestoneVersionSync(cwd, currentSprintVersion, { runner = run } =
 // when the issue-triage check can't run. So each check is isolated: a failing
 // check is represented as `{ error: <message> }` in its slot instead of
 // aborting the whole aggregate, and every other (successful) check's real
-// result is still returned. This isolation is applied uniformly to all four
-// checks (not just the two gh-based ones) since even a "local-only" git check
+// result is still returned. This isolation is applied uniformly to all six
+// checks (not just the three gh-based ones) since even a "local-only" git check
 // can fail for reasons unrelated to the others (missing git binary, corrupted
 // .git, wrong cwd, etc.) and there is no reason a failure there should hide
 // results from checks that did succeed. The worktree check is the newest
@@ -223,6 +268,7 @@ function runHygieneAudit(cwd, { declaredTrunk, currentSprintVersion, runner = ru
     defaultBranch: safeCheck(() => checkDefaultBranch(cwd, declaredTrunk, { runner })),
     untriagedIssues: safeCheck(() => findUntriagedIssues(cwd, { runner })),
     milestoneSync: safeCheck(() => checkMilestoneVersionSync(cwd, currentSprintVersion, { runner })),
+    failingScheduled: safeCheck(() => findFailingScheduledWorkflows(cwd, { runner })),
   };
 }
 
@@ -253,8 +299,9 @@ function main() {
   console.log(`Default branch: ${formatCheck(report.defaultBranch, (v) => (v.ok ? 'OK' : `MISMATCH (origin/HEAD -> ${v.actual}, expected ${declaredTrunk})`))}`);
   console.log(`Untriaged issues: ${formatCheck(report.untriagedIssues, (v) => (v.length ? v.map((i) => `#${i.number} (${i.reason})`).join(', ') : 'none'))}`);
   console.log(`Milestone/sprint version sync: ${formatCheck(report.milestoneSync, (v) => (v.inSync ? 'OK' : `OUT OF SYNC (milestones: ${v.milestoneVersions.join(', ')})`))}`);
+  console.log(`Failing scheduled workflows: ${formatCheck(report.failingScheduled, (v) => (v.length ? v.map((w) => `${w.workflow} (${w.conclusion}, ${w.createdAt})`).join(', ') : 'none'))}`);
 
-  const anyCheckFailed = ['staleBranches', 'staleWorktrees', 'defaultBranch', 'untriagedIssues', 'milestoneSync']
+  const anyCheckFailed = ['staleBranches', 'staleWorktrees', 'defaultBranch', 'untriagedIssues', 'milestoneSync', 'failingScheduled']
     .some((key) => isCheckError(report[key]));
   if (anyCheckFailed) {
     process.exitCode = 1;
@@ -268,6 +315,7 @@ module.exports = {
   checkDefaultBranch,
   findUntriagedIssues,
   checkMilestoneVersionSync,
+  findFailingScheduledWorkflows,
   runHygieneAudit,
 };
 

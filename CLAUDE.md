@@ -18,7 +18,7 @@ bug in the skeleton — fix it there first.
 
 ## Where the build is
 <!-- asdlc:current-state:auto -->
-**Current state:** mutate.js: manifest-driven mutation runs with EOL-preserving anchors, revert verification and a not-evidence exit code, plus the test-mutation-evidence reference and /checkpoint hook — see [handoff](docs/handoffs/v0.2-s3-mutation-tooling.md)
+**Current state:** bootstrap derives its script set instead of enumerating it (the stale list is why consumers never got mutate.js), gh-hygiene gains a sixth check for failing scheduled workflows, plan-template gains the test-tier and regression-sweep riders — see [handoff](docs/handoffs/v0.2-s4-bootstrap-derivation-and-riders.md)
 <!-- /asdlc:current-state:auto -->
 
 To resume, read the **latest** `docs/handoffs/` file (single source of truth). Full
@@ -33,8 +33,8 @@ running history: `docs/STATUS.md`. Branch discipline: one sprint = one branch
 <!-- asdlc:facts:auto -->
 <!-- Measured by `node scripts/asdlc/facts.js` from .asdlc/facts.json. Do not hand-edit: your numbers will be overwritten, and `--check` will fail until they are. -->
 
-- asdlc unit tests: **270**
-- asdlc unit tests passing: **270**
+- asdlc unit tests: **278**
+- asdlc unit tests passing: **278**
 - node: **v24.11.1**
 <!-- /asdlc:facts:auto -->
 
@@ -135,7 +135,7 @@ node --test "scripts/asdlc/test/**/*.test.js"   # the whole suite (~25s)
 node scripts/asdlc/facts.js                     # re-measure the facts span
 node scripts/asdlc/facts.js --check             # non-zero if the span is stale
 node scripts/asdlc/asdlc-lint.js                # lint this file
-node scripts/asdlc/gh-hygiene.js main v0.2      # stale branches/worktrees, triage, milestones
+node scripts/asdlc/gh-hygiene.js main v0.2      # stale branches/worktrees, triage, milestones, scheduled workflows
 ```
 
 **Shell:** PowerShell is canonical on the development machine; the Bash tool is retired

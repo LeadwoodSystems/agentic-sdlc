@@ -11,6 +11,7 @@ const {
   checkDefaultBranch,
   findUntriagedIssues,
   checkMilestoneVersionSync,
+  findFailingScheduledWorkflows,
   runHygieneAudit,
 } = require('../gh-hygiene');
 
@@ -234,12 +235,13 @@ test('checkMilestoneVersionSync extracts version-like tokens from titles with ex
   }
 });
 
-test('runHygieneAudit aggregates all five checks', async () => {
+test('runHygieneAudit aggregates all six checks', async () => {
   const { dir, cleanup } = await makeFixtureRepo();
   try {
     const stubRunner = (cmd, args) => {
       const joined = args.join(' ');
       if (joined.includes('symbolic-ref')) return 'refs/remotes/origin/main';
+      if (joined.includes('run list')) return '[]';
       if (joined.includes('issue list')) return '[]';
       if (joined.includes('milestones')) return 'v0.12\n';
       if (joined.includes('worktree list')) return '';
@@ -250,6 +252,37 @@ test('runHygieneAudit aggregates all five checks', async () => {
       currentSprintVersion: 'v0.12',
       runner: stubRunner,
     });
+    assert.deepEqual(report.staleBranches, []);
+    assert.deepEqual(report.staleWorktrees, []);
+    assert.deepEqual(report.defaultBranch, { ok: true, actual: 'main' });
+    assert.deepEqual(report.untriagedIssues, []);
+    assert.equal(report.milestoneSync.inSync, true);
+    assert.deepEqual(report.failingScheduled, []);
+  } finally {
+    cleanup();
+  }
+});
+
+test('runHygieneAudit isolates a failing scheduled-workflow check from the other five', async () => {
+  const { dir, cleanup } = await makeFixtureRepo();
+  try {
+    const stubRunner = (cmd, args) => {
+      const joined = args.join(' ');
+      if (joined.includes('run list')) throw new Error('gh: authentication required (gh auth login)');
+      if (joined.includes('symbolic-ref')) return 'refs/remotes/origin/main';
+      if (joined.includes('for-each-ref')) return '';
+      if (joined.includes('worktree list')) return '';
+      if (joined.includes('issue list')) return '[]';
+      if (joined.includes('milestones')) return 'v0.12\n';
+      return '';
+    };
+    const report = runHygieneAudit(dir, {
+      declaredTrunk: 'main',
+      currentSprintVersion: 'v0.12',
+      runner: stubRunner,
+    });
+    assert.equal(typeof report.failingScheduled.error, 'string');
+    assert.match(report.failingScheduled.error, /authentication required/);
     assert.deepEqual(report.staleBranches, []);
     assert.deepEqual(report.staleWorktrees, []);
     assert.deepEqual(report.defaultBranch, { ok: true, actual: 'main' });
@@ -267,6 +300,7 @@ test('runHygieneAudit isolates a failing gh-based check so git-based results sti
       const joined = args.join(' ');
       if (joined.includes('symbolic-ref')) return 'refs/remotes/origin/main';
       if (joined.includes('for-each-ref')) return '';
+      if (joined.includes('run list')) throw new Error('gh: authentication required (gh auth login)');
       if (joined.includes('issue list')) throw new Error('gh: authentication required (gh auth login)');
       if (joined.includes('milestones')) throw new Error('gh: authentication required (gh auth login)');
       return '';
@@ -276,15 +310,18 @@ test('runHygieneAudit isolates a failing gh-based check so git-based results sti
       currentSprintVersion: 'v0.12',
       runner: stubRunner,
     });
-    // The two git-only checks succeeded and must still be reported normally.
+    // The three git-only checks succeeded and must still be reported normally.
     assert.deepEqual(report.staleBranches, []);
+    assert.deepEqual(report.staleWorktrees, []);
     assert.deepEqual(report.defaultBranch, { ok: true, actual: 'main' });
-    // The two gh-based checks failed; runHygieneAudit must not throw, and must
+    // The three gh-based checks failed; runHygieneAudit must not throw, and must
     // surface the failure distinctly instead of silently dropping it.
     assert.equal(typeof report.untriagedIssues.error, 'string');
     assert.match(report.untriagedIssues.error, /authentication required/);
     assert.equal(typeof report.milestoneSync.error, 'string');
     assert.match(report.milestoneSync.error, /authentication required/);
+    assert.equal(typeof report.failingScheduled.error, 'string');
+    assert.match(report.failingScheduled.error, /authentication required/);
   } finally {
     cleanup();
   }
@@ -300,6 +337,7 @@ test('runHygieneAudit threads declaredTrunk into findStaleBranches, not a hardco
       if (joined.includes('symbolic-ref')) return 'refs/remotes/origin/build/v0.1';
       if (joined.includes('for-each-ref')) return 'sprint/v0.1-s1';
       if (joined.includes('pr list')) return '[]'; // no merged PR => fall through to the tree comparison
+      if (joined.includes('run list')) return '[]';
       if (joined.includes('issue list')) return '[]';
       if (joined.includes('milestones')) return 'v0.12\n';
       return ''; // git diff --quiet exit 0 => merged, whatever ref was asked for
@@ -340,6 +378,7 @@ test('runHygieneAudit isolates a failing git-based check too, so a gh-based resu
       const joined = args.join(' ');
       if (joined.includes('for-each-ref')) throw new Error('git: not a git repository');
       if (joined.includes('symbolic-ref')) throw new Error('git: not a git repository');
+      if (joined.includes('run list')) return '[]';
       if (joined.includes('issue list')) return '[]';
       if (joined.includes('milestones')) return 'v0.12\n';
       return '';
@@ -593,7 +632,7 @@ test('findStaleWorktrees parses real `git worktree list --porcelain` output', as
   }
 });
 
-test('runHygieneAudit isolates a failing worktree check from the other four', async () => {
+test('runHygieneAudit isolates a failing worktree check from the other five', async () => {
   const { dir, cleanup } = await makeFixtureRepo();
   try {
     const stubRunner = (cmd, args) => {
@@ -601,6 +640,7 @@ test('runHygieneAudit isolates a failing worktree check from the other four', as
       if (joined.includes('worktree list')) throw new Error('git: not a git repository');
       if (joined.includes('symbolic-ref')) return 'refs/remotes/origin/main';
       if (joined.includes('for-each-ref')) return '';
+      if (joined.includes('run list')) return '[]';
       if (joined.includes('issue list')) return '[]';
       if (joined.includes('milestones')) return 'v0.12\n';
       return '';
@@ -616,7 +656,67 @@ test('runHygieneAudit isolates a failing worktree check from the other four', as
     assert.deepEqual(report.defaultBranch, { ok: true, actual: 'main' });
     assert.deepEqual(report.untriagedIssues, []);
     assert.equal(report.milestoneSync.inSync, true);
+    assert.deepEqual(report.failingScheduled, []);
   } finally {
     cleanup();
   }
+});
+
+test('findFailingScheduledWorkflows filters by event server-side', () => {
+  const calls = [];
+  const runner = (cmd, args) => { calls.push({ cmd, args }); return '[]'; };
+  findFailingScheduledWorkflows('/repo', { runner });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].cmd, 'gh');
+  // Filtering client-side over a mixed --limit N list lets a weekly workflow fall
+  // off the end and report as absent, which reads as clean — the silent-skip
+  // failure class mutate.js exists to refuse.
+  assert.deepEqual(calls[0].args.slice(0, 4), ['run', 'list', '--event', 'schedule']);
+  assert.ok(calls[0].args.includes('workflowName,conclusion,status,createdAt'));
+});
+
+test('findFailingScheduledWorkflows flags a workflow whose last completed run failed', () => {
+  const runner = () => JSON.stringify([
+    { workflowName: 'nightly', status: 'completed', conclusion: 'failure', createdAt: '2026-08-05T02:00:00Z' },
+  ]);
+  assert.deepEqual(findFailingScheduledWorkflows('/repo', { runner }), [
+    { workflow: 'nightly', conclusion: 'failure', createdAt: '2026-08-05T02:00:00Z' },
+  ]);
+});
+
+test('findFailingScheduledWorkflows reads the last completed run, not the in-flight one', () => {
+  const runner = () => JSON.stringify([
+    { workflowName: 'nightly', status: 'in_progress', conclusion: null, createdAt: '2026-08-05T02:00:00Z' },
+    { workflowName: 'nightly', status: 'completed', conclusion: 'failure', createdAt: '2026-08-04T02:00:00Z' },
+  ]);
+  assert.deepEqual(
+    findFailingScheduledWorkflows('/repo', { runner }),
+    [{ workflow: 'nightly', conclusion: 'failure', createdAt: '2026-08-04T02:00:00Z' }],
+    'an in-flight run must not win over the last completed one',
+  );
+});
+
+test('findFailingScheduledWorkflows clears a workflow whose newest completed run succeeded', () => {
+  let called = 0;
+  const runner = () => {
+    called += 1;
+    return JSON.stringify([
+      { workflowName: 'nightly', status: 'completed', conclusion: 'success', createdAt: '2026-08-05T02:00:00Z' },
+      { workflowName: 'nightly', status: 'completed', conclusion: 'failure', createdAt: '2026-08-04T02:00:00Z' },
+    ]);
+  };
+  // "most recent", not "any" — a fixed workflow must stop being reported.
+  assert.deepEqual(findFailingScheduledWorkflows('/repo', { runner }), []);
+  // An empty result must mean "queried and found nothing wrong", not "returned [] blindly".
+  assert.equal(called, 1, 'must query gh, not return [] without looking');
+});
+
+test('findFailingScheduledWorkflows reports each workflow independently', () => {
+  const runner = () => JSON.stringify([
+    { workflowName: 'nightly', status: 'completed', conclusion: 'failure', createdAt: '2026-08-05T02:00:00Z' },
+    { workflowName: 'weekly-audit', status: 'completed', conclusion: 'success', createdAt: '2026-08-01T02:00:00Z' },
+    { workflowName: 'monthly-sweep', status: 'completed', conclusion: 'timed_out', createdAt: '2026-07-01T02:00:00Z' },
+  ]);
+  const findings = findFailingScheduledWorkflows('/repo', { runner });
+  assert.deepEqual(findings.map((f) => f.workflow), ['nightly', 'monthly-sweep']);
 });
