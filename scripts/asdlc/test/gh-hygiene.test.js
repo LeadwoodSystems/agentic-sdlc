@@ -11,6 +11,7 @@ const {
   checkDefaultBranch,
   findUntriagedIssues,
   checkMilestoneVersionSync,
+  findFailingScheduledWorkflows,
   runHygieneAudit,
 } = require('../gh-hygiene');
 
@@ -619,4 +620,55 @@ test('runHygieneAudit isolates a failing worktree check from the other four', as
   } finally {
     cleanup();
   }
+});
+
+test('findFailingScheduledWorkflows filters by event server-side', () => {
+  const calls = [];
+  const runner = (cmd, args) => { calls.push({ cmd, args }); return '[]'; };
+  findFailingScheduledWorkflows('/repo', { runner });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].cmd, 'gh');
+  // Filtering client-side over a mixed --limit N list lets a weekly workflow fall
+  // off the end and report as absent, which reads as clean — the silent-skip
+  // failure class mutate.js exists to refuse.
+  assert.deepEqual(calls[0].args.slice(0, 4), ['run', 'list', '--event', 'schedule']);
+  assert.ok(calls[0].args.includes('workflowName,conclusion,status,createdAt'));
+});
+
+test('findFailingScheduledWorkflows flags a workflow whose last completed run failed', () => {
+  const runner = () => JSON.stringify([
+    { workflowName: 'nightly', status: 'completed', conclusion: 'failure', createdAt: '2026-08-05T02:00:00Z' },
+  ]);
+  assert.deepEqual(findFailingScheduledWorkflows('/repo', { runner }), [
+    { workflow: 'nightly', conclusion: 'failure', createdAt: '2026-08-05T02:00:00Z' },
+  ]);
+});
+
+test('findFailingScheduledWorkflows reads the last completed run, not the in-flight one', () => {
+  const runner = () => JSON.stringify([
+    { workflowName: 'nightly', status: 'in_progress', conclusion: null, createdAt: '2026-08-05T02:00:00Z' },
+    { workflowName: 'nightly', status: 'completed', conclusion: 'failure', createdAt: '2026-08-04T02:00:00Z' },
+  ]);
+  assert.deepEqual(findFailingScheduledWorkflows('/repo', { runner }), [
+    { workflow: 'nightly', conclusion: 'failure', createdAt: '2026-08-04T02:00:00Z' },
+  ]);
+});
+
+test('findFailingScheduledWorkflows clears a workflow whose newest completed run succeeded', () => {
+  const runner = () => JSON.stringify([
+    { workflowName: 'nightly', status: 'completed', conclusion: 'success', createdAt: '2026-08-05T02:00:00Z' },
+    { workflowName: 'nightly', status: 'completed', conclusion: 'failure', createdAt: '2026-08-04T02:00:00Z' },
+  ]);
+  // "most recent", not "any" — a fixed workflow must stop being reported.
+  assert.deepEqual(findFailingScheduledWorkflows('/repo', { runner }), []);
+});
+
+test('findFailingScheduledWorkflows reports each workflow independently', () => {
+  const runner = () => JSON.stringify([
+    { workflowName: 'nightly', status: 'completed', conclusion: 'failure', createdAt: '2026-08-05T02:00:00Z' },
+    { workflowName: 'weekly-audit', status: 'completed', conclusion: 'success', createdAt: '2026-08-01T02:00:00Z' },
+    { workflowName: 'monthly-sweep', status: 'completed', conclusion: 'timed_out', createdAt: '2026-07-01T02:00:00Z' },
+  ]);
+  const findings = findFailingScheduledWorkflows('/repo', { runner });
+  assert.deepEqual(findings.map((f) => f.workflow), ['nightly', 'monthly-sweep']);
 });

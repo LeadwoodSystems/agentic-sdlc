@@ -185,6 +185,50 @@ function checkMilestoneVersionSync(cwd, currentSprintVersion, { runner = run } =
   return { inSync: milestoneVersions.includes(currentSprintVersion), milestoneVersions };
 }
 
+// A scheduled workflow fails silently by construction — nobody is waiting on its
+// output — so it can stay broken for months, and the first symptom is an absent
+// report everyone assumed was clean. The motivating case: a test red in a nightly
+// tier for roughly twelve sprints in a project whose CLAUDE.md said to check it.
+// Prose instructions to check a thing are what loop-hardening was written to replace.
+function findFailingScheduledWorkflows(cwd, { runner = run } = {}) {
+  const out = runner(
+    'gh',
+    [
+      'run', 'list',
+      // Filtered server-side, not client-side over a mixed-event list: with
+      // `--limit N` across all events a weekly workflow falls off the end on a
+      // busy repo and reports as absent, which reads as clean.
+      '--event', 'schedule',
+      '--limit', '50',
+      // `workflowName` is the workflow; `name` is the run's display title.
+      '--json', 'workflowName,conclusion,status,createdAt',
+    ],
+    { cwd },
+  );
+
+  const latest = new Map();
+  for (const entry of JSON.parse(out)) {
+    // A run still in flight has no conclusion yet. The most recent *completed*
+    // run is the one carrying a verdict; guessing from an in-flight run would
+    // either invent a failure or mask one.
+    if (entry.status !== 'completed') continue;
+    const previous = latest.get(entry.workflowName);
+    // createdAt is ISO-8601 UTC ("2026-08-05T02:00:00Z"), so lexicographic
+    // comparison is chronological — no Date parsing needed.
+    if (!previous || entry.createdAt > previous.createdAt) {
+      latest.set(entry.workflowName, entry);
+    }
+  }
+
+  const findings = [];
+  for (const [workflow, entry] of latest) {
+    if (entry.conclusion !== 'success') {
+      findings.push({ workflow, conclusion: entry.conclusion, createdAt: entry.createdAt });
+    }
+  }
+  return findings;
+}
+
 // runHygieneAudit aggregates five independent checks. Three (findStaleBranches,
 // findStaleWorktrees, checkDefaultBranch) only need local git and will succeed
 // in any real repo.
@@ -268,6 +312,7 @@ module.exports = {
   checkDefaultBranch,
   findUntriagedIssues,
   checkMilestoneVersionSync,
+  findFailingScheduledWorkflows,
   runHygieneAudit,
 };
 
