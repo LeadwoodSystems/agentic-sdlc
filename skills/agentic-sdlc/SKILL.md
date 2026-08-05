@@ -58,6 +58,13 @@ Two rules make it work:
 - `/sprint [name]` — start a sprint: run the `new-sprint.js` gate, scaffold its plan, kick off brainstorm→plan.
 - `/checkpoint` — non-blocking gate: targeted tests (<=3min) + handoff-exists + STATUS/pointer script, then stage.
 - `/handoff` — generate the handoff doc from the template.
+- **Mutation evidence** — a test that cannot fail is not evidence, and reading its
+  assertions will not tell you whether it can. When a handoff will *cite* a test as
+  evidence for an acceptance criterion, break what the test claims to guard and watch it
+  go red: `scripts/asdlc/mutate.js` executes a manifest you author and reports faithfully.
+  **Offered, never required** (see `#review`) — it measured 30% of test wall-clock on the
+  sprint it came from, so it is scoped to cited tests. See
+  `references/test-mutation-evidence.md`.
 - `/asdlc-hygiene [trunk] [version]` — on-demand read-only audit: stale branches, stale
   worktrees, default-branch drift, untriaged issues, milestone/version sync.
 
