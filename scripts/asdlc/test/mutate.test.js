@@ -377,3 +377,34 @@ test('mutations with different testArgs each get their own baseline', async (t) 
   });
   assert.equal(calls, 4, 'expected a separate baseline per distinct testArgs set');
 });
+
+test('an expectRed that appears in green output is EXPECT-RED-INERT', async (t) => {
+  const repo = await fixtureWithSource();
+  t.after(repo.cleanup);
+  const echoed = 'greet returns a greeting';
+  let call = 0;
+  const results = runMutations(repo.dir, manifest([{ ...BREAKS_IT, expectRed: echoed }]), {
+    // The production shape exactly: the anchor is in the output of the green
+    // baseline AND of the red mutated run, because the reporter echoes test
+    // names on success. The mutated run really does go red — so without the
+    // gate this returns RED-AS-PREDICTED on an anchor that proves nothing.
+    runner: () => { call += 1; return { status: call === 1 ? 0 : 1, stdout: `${echoed}\n`, stderr: '' }; },
+  });
+  assert.equal(
+    results[0].verdict,
+    'EXPECT-RED-INERT',
+    'an anchor present in green output cannot tell a red from a green, whatever the run does',
+  );
+});
+
+test('an EXPECT-RED-INERT never runs the mutated test', async (t) => {
+  const repo = await fixtureWithSource();
+  t.after(repo.cleanup);
+  let calls = 0;
+  const results = runMutations(repo.dir, manifest([{ ...BREAKS_IT, expectRed: 'always present' }]), {
+    runner: () => { calls += 1; return { status: 0, stdout: 'always present\n', stderr: '' }; },
+  });
+  assert.equal(calls, 1, 'the baseline must run and the mutated test must not');
+  assert.equal(results[0].durationMs, 0);
+  assert.equal(fs.readFileSync(path.join(repo.dir, 'src.js'), 'utf8'), SRC);
+});

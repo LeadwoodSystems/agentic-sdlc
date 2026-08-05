@@ -99,7 +99,11 @@ function classify(status, stdout, stderr, expectRed) {
   // THE REASON PREDICTED". A RED without it is collateral damage — a fixture
   // collision, a broader break than intended — and must not be recorded as
   // evidence that the test guards its claim.
-  return `${stdout}${stderr}`.includes(expectRed) ? 'RED-AS-PREDICTED' : 'RED-WRONG-REASON';
+  //
+  // It is only worth that much because runOne has already proven expectRed
+  // absent from a green run of this same command. Without that precondition
+  // this line degrades into a second reading of `status`.
+  return combined({ stdout, stderr }).includes(expectRed) ? 'RED-AS-PREDICTED' : 'RED-WRONG-REASON';
 }
 
 function selectMutations(mutations, only) {
@@ -150,6 +154,17 @@ function runOne(workdir, manifest, mutation, { runner, dryRun, baselines }) {
   // baseline belongs to one testArgs set and the loop already continues past a
   // bad anchor for the same reason.
   if (baseline.status !== 0) return { ...base, verdict: 'BASELINE-RED' };
+
+  // An anchor already present when the code is CORRECT cannot distinguish red
+  // from green — whatever the mutated run prints, a match means nothing. This
+  // is not hypothetical: `node --test` prints a passing test's title, so an
+  // expectRed naming a test was present unconditionally and every non-zero exit
+  // classified as RED-AS-PREDICTED. Any reporter that echoes test names on
+  // success breaks the same way, which is why this is checked rather than
+  // documented.
+  if (combined(baseline).includes(mutation.expectRed)) {
+    return { ...base, verdict: 'EXPECT-RED-INERT' };
+  }
 
   const cmd = manifest.testCommand[0];
   const args = [...manifest.testCommand.slice(1), ...(mutation.testArgs || [])];
