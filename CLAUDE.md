@@ -18,7 +18,7 @@ bug in the skeleton — fix it there first.
 
 ## Where the build is
 <!-- asdlc:current-state:auto -->
-**Current state:** v0.2-s2 in flight — worktree/branch lifecycle and measured facts.
+**Current state:** Worktree/branch lifecycle (squash-merge detection, worktree audit, gate reorder) + measured facts block, lint, and this repo's own CLAUDE.md — see [handoff](docs/handoffs/v0.2-s2-worktrees-and-facts.md)
 <!-- /asdlc:current-state:auto -->
 
 To resume, read the **latest** `docs/handoffs/` file (single source of truth). Full
@@ -33,8 +33,8 @@ running history: `docs/STATUS.md`. Branch discipline: one sprint = one branch
 <!-- asdlc:facts:auto -->
 <!-- Measured by `node scripts/asdlc/facts.js` from .asdlc/facts.json. Do not hand-edit: your numbers will be overwritten, and `--check` will fail until they are. -->
 
-- asdlc unit tests: **193**
-- asdlc unit tests passing: **193**
+- asdlc unit tests: **198**
+- asdlc unit tests passing: **198**
 - node: **v24.11.1**
 <!-- /asdlc:facts:auto -->
 
