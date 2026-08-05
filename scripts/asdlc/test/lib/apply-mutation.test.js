@@ -22,7 +22,7 @@ test('an anchor authored with LF matches a CRLF source', () => {
     '    # 2. The customer-facing send.\n    return send(payload)',
     '    return send(payload)\n    # 2. The customer-facing send.',
   );
-  assert.equal(verdict, 'APPLIED');
+  assert.equal(verdict, 'APPLIED', 'the silent-skip bug: an LF-authored anchor did not match a CRLF source');
   assert.ok(result.includes('    return send(payload)\r\n    # 2.'));
 });
 

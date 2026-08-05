@@ -9,7 +9,7 @@
       "replace": "  const toEol = (s) => String(s);",
       "testArgs": ["scripts/asdlc/test/lib/apply-mutation.test.js"],
       "label": "apply-mutation:eol",
-      "expectRed": "an anchor authored with LF matches a CRLF source"
+      "expectRed": "the silent-skip bug: an LF-authored anchor did not match a CRLF source"
     },
     {
       "id": "DUP",
@@ -19,7 +19,7 @@
       "replace": "  } else if (false) {",
       "testArgs": ["scripts/asdlc/test/lib/manifest.test.js"],
       "label": "manifest:duplicate-id",
-      "expectRed": "duplicate ids are rejected"
+      "expectRed": "a duplicate mutation id was accepted, so one of two mutations would be silently dropped"
     },
     {
       "id": "REVERT",
@@ -29,7 +29,7 @@
       "replace": "  if (false) {",
       "testArgs": ["scripts/asdlc/test/mutate.test.js"],
       "label": "mutate:verify-restored",
-      "expectRed": "verifyRestored throws DIRTY-REVERT when the bytes on disk differ"
+      "expectRed": "a revert whose bytes on disk differ from what was written was accepted as clean"
     }
   ]
 }

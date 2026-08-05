@@ -248,7 +248,11 @@ test('verifyRestored throws DIRTY-REVERT when the bytes on disk differ', async (
   t.after(repo.cleanup);
   const target = path.join(repo.dir, 'src.js');
   fs.writeFileSync(target, 'not what we wrote');
-  assert.throws(() => verifyRestored(target, SRC), /DIRTY-REVERT/);
+  assert.throws(
+    () => verifyRestored(target, SRC),
+    /DIRTY-REVERT/,
+    'a revert whose bytes on disk differ from what was written was accepted as clean',
+  );
 });
 
 test('verifyRestored passes when the bytes match', async (t) => {

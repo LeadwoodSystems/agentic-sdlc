@@ -96,7 +96,11 @@ test('an empty replace is allowed — deleting a line is a real mutation', () =>
 test('duplicate ids are rejected', () => {
   const one = { id: 'A', file: 'f', find: 'a', replace: 'b', expectRed: 'x' };
   const text = JSON.stringify({ testCommand: ['node'], mutations: [one, { ...one }] });
-  assert.throws(() => parseManifest(text), /duplicate mutation id "A"/);
+  assert.throws(
+    () => parseManifest(text),
+    /duplicate mutation id "A"/,
+    'a duplicate mutation id was accepted, so one of two mutations would be silently dropped',
+  );
 });
 
 test('an empty mutations array is rejected', () => {
