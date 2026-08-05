@@ -312,6 +312,7 @@ test('runHygieneAudit isolates a failing gh-based check so git-based results sti
     });
     // The three git-only checks succeeded and must still be reported normally.
     assert.deepEqual(report.staleBranches, []);
+    assert.deepEqual(report.staleWorktrees, []);
     assert.deepEqual(report.defaultBranch, { ok: true, actual: 'main' });
     // The three gh-based checks failed; runHygieneAudit must not throw, and must
     // surface the failure distinctly instead of silently dropping it.
@@ -688,9 +689,11 @@ test('findFailingScheduledWorkflows reads the last completed run, not the in-fli
     { workflowName: 'nightly', status: 'in_progress', conclusion: null, createdAt: '2026-08-05T02:00:00Z' },
     { workflowName: 'nightly', status: 'completed', conclusion: 'failure', createdAt: '2026-08-04T02:00:00Z' },
   ]);
-  assert.deepEqual(findFailingScheduledWorkflows('/repo', { runner }), [
-    { workflow: 'nightly', conclusion: 'failure', createdAt: '2026-08-04T02:00:00Z' },
-  ]);
+  assert.deepEqual(
+    findFailingScheduledWorkflows('/repo', { runner }),
+    [{ workflow: 'nightly', conclusion: 'failure', createdAt: '2026-08-04T02:00:00Z' }],
+    'an in-flight run must not win over the last completed one',
+  );
 });
 
 test('findFailingScheduledWorkflows clears a workflow whose newest completed run succeeded', () => {

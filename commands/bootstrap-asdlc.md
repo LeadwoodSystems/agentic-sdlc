@@ -28,10 +28,11 @@ Then scaffold (create only what's missing), using the `agentic-sdlc` skill's tem
 4. **`docs/superpowers/plans/`** — create the dir (with a `.gitkeep` if empty) and drop a
    copy of `references/plan-template.md` alongside as `_TEMPLATE.md`.
 5. **`.gitignore`** — ensure test/coverage artifacts are ignored if the stack warrants it.
-6. **`scripts/asdlc/`** — copy **every** `.js` file the plugin ships under
-   `scripts/asdlc/`, including the `lib/` subdirectory and excluding `test/` (skip any
-   that already exist). Deliberately a derivation, not a list: an enumeration here went
-   stale once already, and a sprint shipped a tool no consumer could receive. These
+6. **`scripts/asdlc/`** — copy **every** `.js` file the plugin ships from
+   `${CLAUDE_PLUGIN_ROOT}/scripts/asdlc/` (the plugin's own directory, not this repo's) into
+   this repo's `scripts/asdlc/`, including the `lib/` subdirectory and excluding `test/`
+   (skip any that already exist). Deliberately a derivation, not a list: an enumeration here
+   went stale once already, and a sprint shipped a tool no consumer could receive. These
    require only Node on PATH — no `npm install` step.
 7. **`.asdlc/facts.json`** — the manifest of numbers `CLAUDE.md` is allowed to assert.
    Seed it with whatever the repo already claims about itself; each entry is a `label`, a

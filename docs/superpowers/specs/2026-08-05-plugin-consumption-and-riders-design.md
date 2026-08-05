@@ -166,8 +166,13 @@ template reads correctly.
   interactively. No code change, no sprint. Worth doing; it gives a consumer the commands
   and skills, but *not* the scripts — those still arrive by bootstrap.
 - **Editing `gaw`** — its own sprint. See §1.
-- **`${CLAUDE_PLUGIN_ROOT}` paths** — rejected outright, not deferred. Wrong model for this
-  plugin: consumers own the scripts.
+- **`${CLAUDE_PLUGIN_ROOT}` paths** — rejected outright, not deferred, for paths written
+  *inside* the copied scripts: consumers own those files once bootstrapped, so a reference
+  back to the plugin's install location would break the moment the plugin is removed. This
+  does not cover bootstrap's own copy *source* in step 6, which names
+  `${CLAUDE_PLUGIN_ROOT}/scripts/asdlc/` explicitly — that is the one place the plugin root
+  is the correct referent, since it says where to copy *from*, not where the consumer's
+  files live afterward.
 - **Riders 2.3** (`size-sprint` upstream + mutation term) and **2.6** (verification-log
   storage shape) — unchanged from the proposal, still unscheduled.
 - Carried gaps from v0.2-s3: missing `plans/_TEMPLATE.md`; `commands/sprint.md`'s wrong plan

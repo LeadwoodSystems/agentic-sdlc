@@ -9,7 +9,7 @@
       "replace": "   `scripts/asdlc/`, including `lib/exec.js` and excluding `test/` (skip any",
       "testArgs": ["scripts/asdlc/test/bootstrap-manifest.test.js"],
       "label": "bootstrap:enumeration",
-      "expectRed": "names no individual script file"
+      "expectRed": "step 6 enumerates"
     },
     {
       "id": "INFLIGHT",
@@ -19,7 +19,7 @@
       "replace": "    if (false) continue;",
       "testArgs": ["scripts/asdlc/test/gh-hygiene.test.js"],
       "label": "gh-hygiene:in-flight",
-      "expectRed": "reads the last completed run, not the in-flight one"
+      "expectRed": "an in-flight run must not win over the last completed one"
     }
   ]
 }
