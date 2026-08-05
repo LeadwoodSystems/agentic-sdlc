@@ -18,7 +18,7 @@ bug in the skeleton — fix it there first.
 
 ## Where the build is
 <!-- asdlc:current-state:auto -->
-**Current state:** bootstrap derives its script set instead of enumerating it (the stale list is why consumers never got mutate.js), gh-hygiene gains a sixth check for failing scheduled workflows, plan-template gains the test-tier and regression-sweep riders — see [handoff](docs/handoffs/v0.2-s4-bootstrap-derivation-and-riders.md)
+**Current state:** mutation verdicts are now measured rather than reasoned - mutate.js runs the test command unmutated first and refuses an expectRed that already appears in a green run (EXPECT-RED-INERT) or a suite that was already failing (BASELINE-RED); the v0.2-s3 manifest was re-anchored on assertion messages and re-run, and all three of its verdicts held — see [handoff](docs/handoffs/v0.2-s5-mutation-baseline-gate.md)
 <!-- /asdlc:current-state:auto -->
 
 To resume, read the **latest** `docs/handoffs/` file (single source of truth). Full
