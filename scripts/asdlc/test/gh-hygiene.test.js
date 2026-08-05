@@ -631,7 +631,7 @@ test('findStaleWorktrees parses real `git worktree list --porcelain` output', as
   }
 });
 
-test('runHygieneAudit isolates a failing worktree check from the other four', async () => {
+test('runHygieneAudit isolates a failing worktree check from the other five', async () => {
   const { dir, cleanup } = await makeFixtureRepo();
   try {
     const stubRunner = (cmd, args) => {
@@ -639,6 +639,7 @@ test('runHygieneAudit isolates a failing worktree check from the other four', as
       if (joined.includes('worktree list')) throw new Error('git: not a git repository');
       if (joined.includes('symbolic-ref')) return 'refs/remotes/origin/main';
       if (joined.includes('for-each-ref')) return '';
+      if (joined.includes('run list')) return '[]';
       if (joined.includes('issue list')) return '[]';
       if (joined.includes('milestones')) return 'v0.12\n';
       return '';
@@ -654,6 +655,7 @@ test('runHygieneAudit isolates a failing worktree check from the other four', as
     assert.deepEqual(report.defaultBranch, { ok: true, actual: 'main' });
     assert.deepEqual(report.untriagedIssues, []);
     assert.equal(report.milestoneSync.inSync, true);
+    assert.deepEqual(report.failingScheduled, []);
   } finally {
     cleanup();
   }
