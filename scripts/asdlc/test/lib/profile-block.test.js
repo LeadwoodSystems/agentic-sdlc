@@ -5,7 +5,9 @@ const {
   MARKER_END,
   parseProfile,
   upsertProfile,
+  detectEol,
 } = require('../../lib/profile-block');
+const markerBlock = require('../../lib/marker-block');
 
 const PROFILE = {
   schema: 'execution-profile/v1',
@@ -156,6 +158,53 @@ test('upsertProfile allows inline backticks in an assessment', () => {
   const assessment = 'Blast radius is one function (`gh-hygiene.js:45`), no ``adjacent`` coupling.';
   const result = upsertProfile(BODY_LF, PROFILE, { assessment });
   assert.deepEqual(parseProfile(result).profile, PROFILE);
+});
+
+// The three tests below pin the v0.2-s7 migration of the WRITE path onto
+// lib/marker-block.js. The read path (parseProfile) stays here — it is
+// fence-aware and marker-block is not — so its three error strings are
+// unchanged. The write path's unterminated message deliberately CHANGES to
+// marker-block's, which names the specific marker it collided with; nothing
+// asserted on the old text, and "no closing marker" was ambiguous in a document
+// that can hold more than one kind of span.
+test('upsertProfile refuses an unterminated block with a message naming this marker', () => {
+  const body = `${BODY_LF}\n${MARKER_START}\n## ASDLC Execution Profile\n`;
+  assert.throws(() => upsertProfile(body, PROFILE), (err) => {
+    assert.match(err.message, /asdlc:execution-profile/, 'must name the marker it collided with');
+    assert.match(err.message, /Refusing to guess where it ends/);
+    return true;
+  });
+});
+
+test('profile-block re-exports marker-block\'s detectEol rather than duplicating it', () => {
+  // Two byte-identical copies of a line-ending heuristic is exactly the drift
+  // marker-block.js was created to end; identity is the only assertion that
+  // catches a re-divergence.
+  assert.equal(detectEol, markerBlock.detectEol);
+});
+
+test('upsertProfile writes a span marker-block can locate and round-trip', () => {
+  // The seam itself: whatever profile-block writes, the shared reader must be
+  // able to find. A hand-rolled splice that drifted from upsertBlock's shape
+  // would still satisfy every other test in this file.
+  const result = upsertProfile(BODY_LF, PROFILE);
+  const markers = markerBlock.makeMarkers('asdlc:execution-profile');
+  const located = markerBlock.findBlock(result, markers);
+
+  assert.equal(located.found, true);
+  assert.equal(located.error, null);
+  assert.ok(located.inner.includes('## ASDLC Execution Profile'));
+
+  // findBlock's `inner` carries the newlines adjacent to each marker, which
+  // upsertBlock supplies itself — so the round-trip strips exactly one from
+  // each end. Getting this wrong is what a drifted hand-rolled splice looks
+  // like: an extra blank line inside the span on every write.
+  const innerBody = located.inner.replace(/^\r?\n/, '').replace(/\r?\n$/, '');
+  assert.equal(
+    markerBlock.upsertBlock(result, markers, innerBody),
+    result,
+    'a marker-block round-trip of the written span must be a no-op',
+  );
 });
 
 test('upsertProfile places assessment prose above the fence', () => {

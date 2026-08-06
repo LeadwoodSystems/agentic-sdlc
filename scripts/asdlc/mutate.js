@@ -252,18 +252,64 @@ function parseArgs(argv) {
   return args;
 }
 
-function main() {
+// Everything main() does EXCEPT touching the process: returns an exit code
+// instead of calling process.exit, and writes through injected sinks. Split out
+// in v0.2-s7 because this wiring — which verdicts justify a zero exit, which
+// renderer runs, whether a throw reverts before it reports — is the part of
+// mutate.js that every other sprint's evidence rests on, and it was the one
+// part no test could reach while it lived inside a function that exits.
+//
+// Two shell seams rather than one: assertCleanTree needs run()'s
+// throw-on-non-zero contract, runMutations needs runCapture()'s
+// failure-is-the-measurement contract. Collapsing them would hand one of the
+// two the wrong semantics — see the note above runCapture in lib/exec.js.
+function runCli(argv, {
+  cwd = process.cwd(),
+  log = console.log,
+  err = console.error,
+  runner = run,
+  capture = runCapture,
+} = {}) {
   let args;
   try {
-    args = parseArgs(process.argv.slice(2));
-  } catch (err) {
-    console.error(err.message);
-    process.exit(1);
-    return;
+    args = parseArgs(argv);
+  } catch (parseError) {
+    err(parseError.message);
+    return 1;
   }
 
+  try {
+    if (!args.allowDirty) assertCleanTree(cwd, { runner });
+    const manifest = parseManifest(fs.readFileSync(args.manifestPath, 'utf8'));
+    const results = runMutations(cwd, manifest, {
+      only: args.only,
+      dryRun: args.dryRun,
+      runner: capture,
+    });
+
+    if (args.json) {
+      log(renderJson(results));
+    } else {
+      log(renderText(results));
+      log('');
+      log(renderMarkdown(results));
+    }
+
+    // Non-zero when any mutation was not applied as intended. Those runs are
+    // not evidence, and a green exit code would let a /checkpoint gate wave
+    // through a manifest whose anchors have rotted.
+    return summarize(results).isEvidence ? 0 : 1;
+  } catch (runError) {
+    restoreInFlight();
+    err(runError.message);
+    return 1;
+  }
+}
+
+function main() {
   // Registered here rather than at module load, so importing this module in a
-  // test does not install process-wide handlers.
+  // test does not install process-wide handlers. runCli is the importable half
+  // precisely so that this half can stay untested and stay trivial.
   for (const signal of ['SIGINT', 'SIGTERM']) {
     process.on(signal, () => {
       restoreInFlight();
@@ -277,32 +323,11 @@ function main() {
     process.exit(1);
   });
 
-  const cwd = process.cwd();
-  try {
-    if (!args.allowDirty) assertCleanTree(cwd);
-    const manifest = parseManifest(fs.readFileSync(args.manifestPath, 'utf8'));
-    const results = runMutations(cwd, manifest, { only: args.only, dryRun: args.dryRun });
-
-    if (args.json) {
-      console.log(renderJson(results));
-    } else {
-      console.log(renderText(results));
-      console.log('');
-      console.log(renderMarkdown(results));
-    }
-
-    // Non-zero when any mutation was not applied as intended. Those runs are
-    // not evidence, and a green exit code would let a /checkpoint gate wave
-    // through a manifest whose anchors have rotted.
-    process.exit(summarize(results).isEvidence ? 0 : 1);
-  } catch (err) {
-    restoreInFlight();
-    console.error(err.message);
-    process.exit(1);
-  }
+  process.exit(runCli(process.argv.slice(2)));
 }
 
 module.exports = {
+  runCli,
   runMutations,
   assertCleanTree,
   restoreInFlight,
