@@ -243,6 +243,7 @@ test('deleteBranch deletes remote branch if it exists', async () => {
     const calls = [];
     const testRunner = (cmd, args, opts) => {
       calls.push({ cmd, args: args.join(' ') });
+      if (args[0] === 'config') return 'https://example.invalid/r.git';
       // Simulate successful execution
       if (args[0] === 'ls-remote') {
         // Pretend remote branch exists
@@ -279,6 +280,7 @@ test('deleteBranch does not delete remote if it does not exist', async () => {
     const calls = [];
     const testRunner = (cmd, args, opts) => {
       calls.push({ cmd, args: args.join(' ') });
+      if (args[0] === 'config') return 'https://example.invalid/r.git';
       // Simulate successful execution, but remote doesn't exist
       if (args[0] === 'ls-remote') {
         return ''; // No remote branch
@@ -306,10 +308,11 @@ test('deleteBranch does not delete remote if it does not exist', async () => {
   }
 });
 
-test('deleteBranch propagates a genuine push --delete failure instead of swallowing it', async () => {
+test('deleteBranch reports a genuine push --delete failure instead of swallowing it', async () => {
   const { dir, cleanup } = await makeFixtureRepo();
   try {
     const testRunner = (cmd, args) => {
+      if (args[0] === 'config') return 'https://example.invalid/r.git';
       if (args[0] === 'branch') return '';
       if (args[0] === 'ls-remote') {
         // Remote branch exists, so deleteBranch will attempt to push --delete
@@ -321,10 +324,13 @@ test('deleteBranch propagates a genuine push --delete failure instead of swallow
       return '';
     };
 
-    assert.throws(
-      () => deleteBranch(dir, 'sprint/v0.1-s1', { runner: testRunner }),
-      /protected branch hook declined/,
-    );
+    const result = deleteBranch(dir, 'sprint/v0.1-s1', { runner: testRunner });
+
+    // The failure is REPORTED, not thrown and not swallowed. Throwing here would
+    // produce a raw stack trace on a half-applied finish — markMerged has already
+    // rewritten STATUS.md and the local branch is already gone by this point.
+    assert.equal(result.remote, 'failed', 'a push --delete failure must be reported as failed');
+    assert.match(result.error, /protected branch hook declined/);
   } finally {
     cleanup();
   }
@@ -336,6 +342,7 @@ test('deleteBranch uses injected runner for git commands', async () => {
     const calls = [];
     const testRunner = (cmd, args, opts) => {
       calls.push({ cmd, args });
+      if (args[0] === 'config') return 'https://example.invalid/r.git';
       if (args[0] === 'ls-remote') return '';
       return '';
     };
@@ -347,6 +354,100 @@ test('deleteBranch uses injected runner for git commands', async () => {
       calls.every((c) => c.cmd === 'git'),
       'all calls should use git command',
     );
+  } finally {
+    cleanup();
+  }
+});
+
+test('deleteBranch reports no-origin without calling ls-remote', async () => {
+  const { dir, cleanup } = await makeFixtureRepo();
+  try {
+    const calls = [];
+    const testRunner = (cmd, args) => {
+      calls.push(args.join(' '));
+      if (args[0] === 'config') {
+        const err = new Error('git config --get remote.origin.url failed: ');
+        err.status = 1; // git's "key absent" — the local-only testing scenario
+        throw err;
+      }
+      return '';
+    };
+
+    const result = deleteBranch(dir, 'sprint/v0.1-s1', { runner: testRunner });
+
+    assert.equal(result.remote, 'no-origin');
+    assert.ok(
+      !calls.some((c) => c.includes('ls-remote')),
+      'with no origin there is nothing to ask a remote about',
+    );
+  } finally {
+    cleanup();
+  }
+});
+
+test('deleteBranch reports failed when ls-remote fails and an origin exists', async () => {
+  const { dir, cleanup } = await makeFixtureRepo();
+  try {
+    const testRunner = (cmd, args) => {
+      if (args[0] === 'config') return 'https://example.invalid/r.git';
+      if (args[0] === 'ls-remote') {
+        // THE DEFECT THIS SPRINT REMOVES. Before the fix this was caught by a
+        // bare `return`, the push was skipped, and main() printed success.
+        const err = new Error("git ls-remote failed: fatal: could not read Username for 'https://github.com'");
+        err.status = 128;
+        throw err;
+      }
+      return '';
+    };
+
+    const result = deleteBranch(dir, 'sprint/v0.1-s1', { runner: testRunner });
+
+    assert.equal(
+      result.remote,
+      'failed',
+      'an ls-remote failure with an origin configured is NOT "nothing to delete"',
+    );
+    assert.match(result.error, /could not read Username/);
+  } finally {
+    cleanup();
+  }
+});
+
+test('deleteBranch reports absent when origin exists but the branch is not on it', async () => {
+  const { dir, cleanup } = await makeFixtureRepo();
+  try {
+    const calls = [];
+    const testRunner = (cmd, args) => {
+      calls.push(args.join(' '));
+      if (args[0] === 'config') return 'https://example.invalid/r.git';
+      if (args[0] === 'ls-remote') return '';
+      return '';
+    };
+
+    const result = deleteBranch(dir, 'sprint/v0.1-s1', { runner: testRunner });
+
+    assert.equal(result.remote, 'absent');
+    assert.ok(
+      !calls.some((c) => c.includes('push')),
+      'nothing on the remote to delete',
+    );
+  } finally {
+    cleanup();
+  }
+});
+
+test('deleteBranch reports deleted when the remote branch was removed', async () => {
+  const { dir, cleanup } = await makeFixtureRepo();
+  try {
+    const testRunner = (cmd, args) => {
+      if (args[0] === 'config') return 'https://example.invalid/r.git';
+      if (args[0] === 'ls-remote') return 'abc1234\trefs/heads/sprint/v0.1-s1';
+      return '';
+    };
+
+    const result = deleteBranch(dir, 'sprint/v0.1-s1', { runner: testRunner });
+
+    assert.deepEqual(result, { remote: 'deleted' });
   } finally {
     cleanup();
   }

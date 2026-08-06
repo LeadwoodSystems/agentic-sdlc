@@ -94,7 +94,15 @@ function originUrl(cwd, { runner = run } = {}) {
 
 /**
  * deleteBranch(cwd, branchName, { runner = run } = {})
- * Deletes the local branch, and the remote branch if it exists.
+ * Deletes the local branch, then reports what happened to the remote one:
+ *   { remote: 'deleted' }            pushed a delete to origin
+ *   { remote: 'absent' }             origin exists, the branch is not on it
+ *   { remote: 'no-origin' }          no origin configured — nothing to delete
+ *   { remote: 'failed', error }      origin exists and the delete could not be done
+ *
+ * The result describes the REMOTE outcome only. There is no `local` field: the local
+ * delete either succeeded or threw, so a returning deleteBranch has always done it, and
+ * a field that is always true is a field callers learn to skip reading.
  *
  * SQUASH-MERGE HANDLING:
  * This plugin promotes squash-merge PRs (one clean commit per sprint).
@@ -129,20 +137,26 @@ function deleteBranch(cwd, branchName, { runner = run } = {}) {
     runner('git', ['branch', '-D', branchName], { cwd });
   }
 
-  // Check if a remote branch exists. If there's no `origin` remote at all
-  // (e.g. local-only testing scenarios), that's fine to swallow since there's
-  // nothing to delete.
-  let remote = '';
-  try {
-    remote = runner('git', ['ls-remote', '--heads', 'origin', branchName], { cwd });
-  } catch (err) {
-    return;
-  }
+  // From here the function is about the REMOTE, and every outcome is returned
+  // rather than thrown. By the time main() calls this, markMerged has already
+  // rewritten STATUS.md and the local branch is gone — so a throw would produce
+  // a raw stack trace on a half-applied finish. That is the failure mode the
+  // resolveSprintBranch note above was written to stop recurring, and it is why
+  // removeWorktreeForBranch reports rather than throws too.
+  if (originUrl(cwd, { runner }) === null) return { remote: 'no-origin' };
 
-  // A genuine failure here (auth failure, branch protection, network issue)
-  // is an actionable error and must propagate to the caller, not be swallowed.
-  if (remote.length > 0) {
+  // An origin IS configured, so from here a failure is a real failure. The
+  // previous version caught this and returned, which made "I could not reach
+  // origin" indistinguishable from "there is no origin" and let main() report
+  // a remote delete that never happened. Observed live 2026-08-06:
+  // sprint/v0.2-s7 survived on GitHub after a run that exited 0.
+  try {
+    const listed = runner('git', ['ls-remote', '--heads', 'origin', branchName], { cwd });
+    if (listed.length === 0) return { remote: 'absent' };
     runner('git', ['push', 'origin', '--delete', branchName], { cwd });
+    return { remote: 'deleted' };
+  } catch (err) {
+    return { remote: 'failed', error: err.message };
   }
 }
 
