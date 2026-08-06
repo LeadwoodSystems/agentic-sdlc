@@ -11,6 +11,7 @@ const {
   resolveSprintBranch,
   removeWorktreeForBranch,
   checkMilestone,
+  originUrl,
   main,
 } = require('../finish-sprint');
 
@@ -737,6 +738,62 @@ test('main() --force removes the dirty worktree and completes the sprint', () =>
   } finally {
     process.chdir(originalCwd);
     console.log = originalLog;
+    cleanup();
+  }
+});
+
+test('originUrl returns null when no origin is configured', async () => {
+  const { dir, cleanup } = await makeFixtureRepo();
+  try {
+    // `git config --get` exits 1 for a missing key. The fixture repo has no
+    // remote, so this is the real git behaviour, not a stub of it.
+    assert.equal(originUrl(dir), null);
+  } finally {
+    cleanup();
+  }
+});
+
+test('originUrl returns the configured url', async () => {
+  const { dir, cleanup } = await makeFixtureRepo();
+  try {
+    run('git', ['remote', 'add', 'origin', 'https://example.invalid/r.git'], { cwd: dir });
+    assert.equal(originUrl(dir), 'https://example.invalid/r.git');
+  } finally {
+    cleanup();
+  }
+});
+
+test('originUrl propagates a failure that is not a missing key', async () => {
+  const { dir, cleanup } = await makeFixtureRepo();
+  try {
+    const testRunner = () => {
+      // Exit 128 is git's "broken invocation" code — a corrupt config, or a
+      // cwd that is not a git repository. Reporting it as "no origin" would
+      // rebuild the very defect this sprint removes, one level down.
+      const err = new Error('git config --get remote.origin.url failed: fatal: not a git repository');
+      err.status = 128;
+      throw err;
+    };
+    assert.throws(
+      () => originUrl(dir, { runner: testRunner }),
+      /not a git repository/,
+      'a status-128 config failure must propagate, not be read as "no origin"',
+    );
+  } finally {
+    cleanup();
+  }
+});
+
+test('originUrl treats a configured-but-empty url as no origin', async () => {
+  const { dir, cleanup } = await makeFixtureRepo();
+  try {
+    const testRunner = () => '';
+    assert.equal(
+      originUrl(dir, { runner: testRunner }),
+      null,
+      'an origin with no url is not one that can be pushed to',
+    );
+  } finally {
     cleanup();
   }
 });

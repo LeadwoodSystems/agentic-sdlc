@@ -65,6 +65,34 @@ function markMerged(cwd, sprintId, sha) {
 }
 
 /**
+ * originUrl(cwd, { runner = run } = {})
+ * -> string|null — the configured `origin` URL, or null if there is no usable origin.
+ *
+ * A LOCAL config read, deliberately. It cannot reach the network, so no auth failure,
+ * unreachable host, or Git-for-Windows MSYS crash can reach it either — which is what
+ * makes it able to answer the one question `git ls-remote` cannot answer separately:
+ * "is there an origin at all?" as opposed to "could I talk to it?".
+ *
+ * Exit 1 is `git config --get`'s way of reporting an ABSENT KEY, which is an answer.
+ * Anything else (a corrupt config, a cwd that is not a git repository) is a broken
+ * invocation and propagates. This is the same discrimination lib/branch-status.js:53-60
+ * applies to `git diff --quiet`, and for the same reason: swallowing a broken invocation
+ * as a legitimate negative answer is exactly the defect this function was added to remove.
+ *
+ * A configured-but-empty value counts as absent — `git config` will hold an empty string,
+ * and an origin with no URL is not one that can be pushed to.
+ */
+function originUrl(cwd, { runner = run } = {}) {
+  try {
+    const url = runner('git', ['config', '--get', 'remote.origin.url'], { cwd });
+    return url.length > 0 ? url : null;
+  } catch (err) {
+    if (err.status === 1) return null;
+    throw err;
+  }
+}
+
+/**
  * deleteBranch(cwd, branchName, { runner = run } = {})
  * Deletes the local branch, and the remote branch if it exists.
  *
@@ -320,6 +348,7 @@ module.exports = {
   parseWorktrees,
   removeWorktreeForBranch,
   checkMilestone,
+  originUrl,
   main,
 };
 
