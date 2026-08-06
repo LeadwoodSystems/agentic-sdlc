@@ -4,7 +4,9 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { makeFixtureRepo } = require('./helpers/fixture-repo');
 const { run } = require('../lib/exec');
+const os = require('node:os');
 const {
+  runCli,
   runMutations,
   assertCleanTree,
   restoreInFlight,
@@ -411,4 +413,186 @@ test('an EXPECT-RED-INERT never runs the mutated test', async (t) => {
   assert.equal(calls, 1, 'the baseline must run and the mutated test must not');
   assert.equal(results[0].durationMs, 0);
   assert.equal(fs.readFileSync(path.join(repo.dir, 'src.js'), 'utf8'), SRC);
+});
+
+// ---------------------------------------------------------------------------
+// runCli — the CLI wiring (v0.2-s7)
+//
+// Deliberately the cheap tier: a bare temp directory, no git init, both shell
+// seams stubbed. Per test-mutation-evidence.md the mutation loop pays test
+// BOOTSTRAP once per run, and the fixture-repo tests above cost ~80x these — so
+// this sprint's mutation anchors belong on these assertions, not on those.
+// ---------------------------------------------------------------------------
+
+function cheapWorkdir(t) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mutate-cli-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  fs.writeFileSync(path.join(dir, 'src.js'), SRC);
+  return dir;
+}
+
+function writeManifest(dir, mutations) {
+  const manifestPath = path.join(dir, 'manifest.json');
+  fs.writeFileSync(manifestPath, JSON.stringify(manifest(mutations), null, 2));
+  return manifestPath;
+}
+
+function sinks() {
+  const out = [];
+  const errs = [];
+  return {
+    out, errs, log: (m) => out.push(String(m)), err: (m) => errs.push(String(m)),
+  };
+}
+
+// git status --porcelain reporting a clean tree.
+const CLEAN_TREE = () => '';
+
+// runCapture's shape, one queued response per call; the last repeats.
+function captureQueue(responses) {
+  let i = 0;
+  return () => {
+    const response = responses[Math.min(i, responses.length - 1)];
+    i += 1;
+    return response;
+  };
+}
+
+const GREEN = { status: 0, stdout: '', stderr: '' };
+const RED_AS_PREDICTED = { status: 1, stdout: 'AssertionError: hi ada\n', stderr: '' };
+
+test('runCli returns 0 and renders text then markdown on an evidential run', (t) => {
+  const dir = cheapWorkdir(t);
+  const manifestPath = writeManifest(dir, [BREAKS_IT]);
+  const s = sinks();
+
+  const code = runCli([manifestPath], {
+    cwd: dir,
+    log: s.log,
+    err: s.err,
+    runner: CLEAN_TREE,
+    capture: captureQueue([GREEN, RED_AS_PREDICTED]),
+  });
+
+  assert.equal(code, 0);
+  assert.deepEqual(s.errs, []);
+  assert.equal(s.out.length, 3, 'text, a blank separator, then markdown');
+  assert.match(s.out[0], /RED-AS-PREDICTED/);
+  assert.equal(s.out[1], '');
+  assert.match(s.out[2], /\|/, 'the markdown render is a table');
+});
+
+test('runCli returns 1 when the run is not evidence', (t) => {
+  const dir = cheapWorkdir(t);
+  // An anchor that matches nothing: the mutation is never applied, so nothing
+  // can be concluded from what the test did. A zero here is the failure this
+  // whole tool exists to prevent — a /checkpoint gate waving through a manifest
+  // whose anchors have rotted.
+  const manifestPath = writeManifest(dir, [{ ...BREAKS_IT, find: 'no such line in src.js' }]);
+  const s = sinks();
+
+  const code = runCli([manifestPath], {
+    cwd: dir,
+    log: s.log,
+    err: s.err,
+    runner: CLEAN_TREE,
+    capture: captureQueue([GREEN]),
+  });
+
+  assert.equal(code, 1);
+  assert.match(s.out[0], /ANCHOR-MISS/);
+});
+
+test('runCli returns 0 for a GREEN run — a finding, not a broken one', (t) => {
+  const dir = cheapWorkdir(t);
+  const manifestPath = writeManifest(dir, [BREAKS_IT]);
+  const s = sinks();
+
+  // Baseline green, mutated ALSO green. GREEN is pointedly absent from
+  // report.js's NOT_EVIDENCE set: the mutation WAS applied and reverted as
+  // intended, so the run is trustworthy and what it found — a test that cannot
+  // see its own subject — is the finding. Conflating "bad news" with "bad run"
+  // would make the exit code unable to distinguish a hollow test from a rotted
+  // anchor, which are opposite problems with opposite fixes.
+  const code = runCli([manifestPath], {
+    cwd: dir,
+    log: s.log,
+    err: s.err,
+    runner: CLEAN_TREE,
+    capture: captureQueue([GREEN, GREEN]),
+  });
+
+  assert.equal(code, 0);
+  assert.match(s.out[0], /GREEN/);
+});
+
+test('runCli --json writes JSON only', (t) => {
+  const dir = cheapWorkdir(t);
+  const manifestPath = writeManifest(dir, [BREAKS_IT]);
+  const s = sinks();
+
+  const code = runCli([manifestPath, '--json'], {
+    cwd: dir,
+    log: s.log,
+    err: s.err,
+    runner: CLEAN_TREE,
+    capture: captureQueue([GREEN, RED_AS_PREDICTED]),
+  });
+
+  assert.equal(code, 0);
+  assert.equal(s.out.length, 1, 'no text or markdown alongside the JSON');
+  const parsed = JSON.parse(s.out[0]);
+  assert.equal(parsed.isEvidence, true);
+  assert.equal(parsed.results[0].verdict, 'RED-AS-PREDICTED');
+});
+
+test('runCli returns 1 and reports usage when the arguments do not parse', () => {
+  const s = sinks();
+  const code = runCli([], {
+    cwd: process.cwd(), log: s.log, err: s.err, runner: CLEAN_TREE,
+  });
+
+  assert.equal(code, 1);
+  assert.deepEqual(s.out, [], 'nothing is rendered when nothing ran');
+  assert.match(s.errs[0], /Usage: node mutate\.js/);
+});
+
+test('runCli refuses a dirty tree before reading the manifest', (t) => {
+  const dir = cheapWorkdir(t);
+  const s = sinks();
+
+  // The manifest path does not exist: if the guard did not run first, the
+  // failure would be ENOENT rather than the refusal.
+  const code = runCli([path.join(dir, 'absent.json')], {
+    cwd: dir,
+    log: s.log,
+    err: s.err,
+    runner: () => ' M src.js',
+  });
+
+  assert.equal(code, 1);
+  assert.match(s.errs[0], /Refusing to run with uncommitted changes/);
+  assert.match(s.errs[0], /M src\.js/, 'the porcelain output must be included');
+});
+
+test('runCli restores an in-flight mutation when the run throws', (t) => {
+  const dir = cheapWorkdir(t);
+  const victim = path.join(dir, 'victim.js');
+  fs.writeFileSync(victim, 'MUTATED');
+  __setInFlight({ absPath: victim, before: 'ORIGINAL' });
+  const s = sinks();
+
+  const code = runCli([path.join(dir, 'absent.json')], {
+    cwd: dir,
+    log: s.log,
+    err: s.err,
+    runner: CLEAN_TREE,
+  });
+
+  assert.equal(code, 1);
+  assert.equal(
+    fs.readFileSync(victim, 'utf8'),
+    'ORIGINAL',
+    'a throw must revert before it reports, or the tree is left mutated',
+  );
 });
