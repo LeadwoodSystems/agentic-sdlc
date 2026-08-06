@@ -288,9 +288,10 @@ function findFailingScheduledWorkflows(cwd, { runner = run } = {}) {
   return findings;
 }
 
-// runHygieneAudit aggregates six independent checks. Three (findStaleBranches,
-// findStaleWorktrees, checkDefaultBranch) only need local git and will succeed
-// in any real repo.
+// runHygieneAudit aggregates every independent check it runs. Three
+// (findStaleBranches, findStaleWorktrees, checkDefaultBranch) only need local
+// git and will succeed in any real repo. One (findStaleRemoteBranches) needs
+// the network to reach the `origin` remote, but not the `gh` CLI itself.
 // The other three (findUntriagedIssues, checkMilestoneVersionSync,
 // findFailingScheduledWorkflows) shell out to `gh` and depend on GitHub auth,
 // network access, and a GitHub remote existing — any of which can be
@@ -304,8 +305,8 @@ function findFailingScheduledWorkflows(cwd, { runner = run } = {}) {
 // when the issue-triage check can't run. So each check is isolated: a failing
 // check is represented as `{ error: <message> }` in its slot instead of
 // aborting the whole aggregate, and every other (successful) check's real
-// result is still returned. This isolation is applied uniformly to all six
-// checks (not just the three gh-based ones) since even a "local-only" git check
+// result is still returned. This isolation is applied uniformly to every
+// check (not just the three gh-based ones) since even a "local-only" git check
 // can fail for reasons unrelated to the others (missing git binary, corrupted
 // .git, wrong cwd, etc.) and there is no reason a failure there should hide
 // results from checks that did succeed. The worktree check is the newest
