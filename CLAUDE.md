@@ -18,7 +18,7 @@ bug in the skeleton — fix it there first.
 
 ## Where the build is
 <!-- asdlc:current-state:auto -->
-**Current state:** checkpoint-hooks now writes through lib/marker-block.js so a checkpoint preserves CRLF; the plugin's own command surface is being dogfooded rather than hand-copied, and three subset enumerations plus the plan-template copy are gone — see [handoff](docs/handoffs/v0.2-s6-invariant-drift.md)
+**Current state:** profile-block.js now writes through lib/marker-block.js, retiring the last hand-rolled marker splice; mutate.js gains a testable runCli seam so the exit code every checkpoint reads is finally covered; the legacy loop-hardening plan is renamed to pair with its handoff — see [handoff](docs/handoffs/v0.2-s7-marker-consolidation.md)
 <!-- /asdlc:current-state:auto -->
 
 To resume, read the **latest** `docs/handoffs/` file (single source of truth). Full
@@ -33,8 +33,8 @@ running history: `docs/STATUS.md`. Branch discipline: one sprint = one branch
 <!-- asdlc:facts:auto -->
 <!-- Measured by `node scripts/asdlc/facts.js` from .asdlc/facts.json. Do not hand-edit: your numbers will be overwritten, and `--check` will fail until they are. -->
 
-- asdlc unit tests: **295**
-- asdlc unit tests passing: **295**
+- asdlc unit tests: **305**
+- asdlc unit tests passing: **305**
 - node: **v24.11.1**
 <!-- /asdlc:facts:auto -->
 
