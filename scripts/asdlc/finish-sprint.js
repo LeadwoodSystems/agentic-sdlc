@@ -272,7 +272,9 @@ function checkMilestone(cwd, issueNumbers, { runner = run } = {}) {
  * 1. Validate args (sprint-id, sha required)
  * 2. Call removeWorktreeForBranch(cwd, `sprint/${sprintId}`) — retire the worktree
  * 3. Call markMerged(cwd, sprintId, sha) — update docs/STATUS.md
- * 4. Call deleteBranch(cwd, `sprint/${sprintId}`) — clean up sprint branch
+ * 4. Call deleteBranch(cwd, branchName) — delete the branch, and report the remote
+ *    outcome. A remote branch left behind sets exitCode 1: it is debris that no gate
+ *    caught before v0.2-s8, so a silent success is how it survives.
  * 5. If issue numbers provided, call checkMilestone and report missing milestones
  *
  * ORDER: the worktree must go before the branch — git refuses to delete a
@@ -339,8 +341,22 @@ function main(argv = process.argv.slice(2), { runner = run } = {}) {
   markMerged(cwd, sprintId, sha);
   console.log(`Marked ${sprintId} as merged (${sha}) in docs/STATUS.md.`);
 
-  deleteBranch(cwd, branchName, { runner });
-  console.log(`Deleted branch ${branchName} (local + remote if present).`);
+  // The local delete and the remote outcome are separately true, so they are
+  // reported separately. The old single line — "(local + remote if present)" —
+  // was unconditional, and was the sentence that reported a remote delete that
+  // had been skipped.
+  const deleted = deleteBranch(cwd, branchName, { runner });
+  console.log(`Deleted local branch ${branchName}.`);
+  if (deleted.remote === 'deleted') {
+    console.log(`Deleted ${branchName} on origin.`);
+  } else if (deleted.remote === 'failed') {
+    console.error(`Could not delete ${branchName} on origin: ${deleted.error}`);
+    console.error('The REMOTE branch still exists. Finish by hand:');
+    console.error(`    git push origin --delete ${branchName}`);
+    // Set the code rather than returning: the milestone check below is advisory
+    // and still worth running, and process.exitCode survives to the end of main.
+    process.exitCode = 1; // a branch left on the remote is not a successful finish
+  }
 
   const issueNumbers = issueArgs.map(Number).filter((n) => !Number.isNaN(n));
   if (issueNumbers.length > 0) {

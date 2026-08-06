@@ -898,3 +898,84 @@ test('originUrl treats a configured-but-empty url as no origin', async () => {
     cleanup();
   }
 });
+
+test('main() exits non-zero and names the leftover branch when the remote delete fails', async () => {
+  const { dir, cleanup } = await makeFixtureRepo();
+  const originalCwd = process.cwd();
+  const originalLog = console.log;
+  const originalError = console.error;
+  const originalExitCode = process.exitCode;
+  try {
+    const statusPath = path.join(dir, 'docs/STATUS.md');
+    fs.mkdirSync(path.dirname(statusPath), { recursive: true });
+    fs.writeFileSync(statusPath, '- 2026-07-20 **v0.1-s1** — First — [handoff](docs/handoffs/v0.1-s1-a.md) — status: awaiting-merge\n');
+    run('git', ['branch', 'sprint/v0.1-s1'], { cwd: dir });
+
+    const logs = [];
+    const errors = [];
+    console.log = (...args) => logs.push(args.join(' '));
+    console.error = (...args) => errors.push(args.join(' '));
+
+    const testRunner = (cmd, args, opts) => {
+      // An origin IS configured, and the network is broken — this machine's
+      // standing condition (docs/2026-08-04-shell-strategy.md).
+      if (args[0] === 'config' && args.includes('remote.origin.url')) {
+        return 'https://example.invalid/r.git';
+      }
+      if (args[0] === 'ls-remote') {
+        const err = new Error('git ls-remote failed: fatal: unable to access');
+        err.status = 128;
+        throw err;
+      }
+      return run(cmd, args, opts);
+    };
+
+    // Clear it first: asserting it BECAME 1 is only meaningful if it wasn't
+    // already 1 when the test started.
+    process.exitCode = undefined;
+    process.chdir(dir);
+    main(['v0.1-s1', 'abc1234'], { runner: testRunner });
+
+    assert.equal(process.exitCode, 1, 'a remote branch left behind is not a successful finish');
+    const all = [...logs, ...errors].join('\n');
+    assert.match(all, /sprint\/v0\.1-s1/, 'the leftover branch must be named');
+    assert.match(all, /git push origin --delete sprint\/v0\.1-s1/, 'the remedy must be printed verbatim');
+    assert.ok(
+      !logs.some((l) => /local \+ remote if present/.test(l)),
+      'the unconditional success line was the sentence that lied — it must be gone',
+    );
+  } finally {
+    process.chdir(originalCwd);
+    console.log = originalLog;
+    console.error = originalError;
+    process.exitCode = originalExitCode;
+    cleanup();
+  }
+});
+
+test('main() leaves the exit code alone on a clean finish', async () => {
+  const { dir, cleanup } = await makeFixtureRepo();
+  const originalCwd = process.cwd();
+  const originalLog = console.log;
+  const originalExitCode = process.exitCode;
+  try {
+    const statusPath = path.join(dir, 'docs/STATUS.md');
+    fs.mkdirSync(path.dirname(statusPath), { recursive: true });
+    fs.writeFileSync(statusPath, '- 2026-07-20 **v0.1-s1** — First — [handoff](docs/handoffs/v0.1-s1-a.md) — status: awaiting-merge\n');
+    run('git', ['branch', 'sprint/v0.1-s1'], { cwd: dir });
+
+    console.log = () => {};
+    process.exitCode = undefined;
+    process.chdir(dir);
+
+    // No origin in the fixture repo, so the remote half is a no-op.
+    main(['v0.1-s1', 'abc1234'], { runner: (cmd, args, opts) => run(cmd, args, opts) });
+
+    assert.equal(process.exitCode, undefined, 'a clean finish must not set a failure code');
+  } finally {
+    process.chdir(originalCwd);
+    console.log = originalLog;
+    process.exitCode = originalExitCode;
+    cleanup();
+  }
+});
