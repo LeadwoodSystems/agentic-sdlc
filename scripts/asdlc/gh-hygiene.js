@@ -26,6 +26,57 @@ function findStaleBranches(cwd, { trunk = 'main', runner = run } = {}) {
   return branches.filter((branch) => isBranchMerged(cwd, branch, { trunk, runner }));
 }
 
+// `git ls-remote --heads` emits one `<sha>\t<ref>` line per matching head.
+// Split on the tab rather than on whitespace: a ref name cannot contain a tab,
+// and splitting on spaces would be wrong the moment one appears in a ref.
+function parseLsRemoteHeads(out) {
+  return out
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .map((l) => {
+      const [sha, ref] = l.split('\t');
+      return { sha, branch: (ref || '').replace(/^refs\/heads\//, '') };
+    })
+    .filter((e) => e.branch.length > 0);
+}
+
+// Sprint branches that still exist ON THE REMOTE although their work is in trunk.
+//
+// WHY THIS EXISTS: findStaleBranches above scans refs/heads — LOCAL branches. So did
+// new-sprint.js's gate. finish-sprint.js deletes the local branch first and could fail
+// the remote delete silently (v0.2-s8 fixed that half), which left debris no check
+// could see: sprint/v0.2-s7 sat on GitHub until a human noticed it.
+//
+// Asks the remote directly rather than reading refs/remotes/origin/sprint/*. Those
+// remote-tracking refs are only as fresh as the last `fetch --prune`: they report
+// branches already deleted on the remote and miss ones pushed from another clone. An
+// audit that can be confidently wrong is worse than one that admits it cannot answer —
+// and when the network is down, safeCheck renders this as `could not check (…)`, which
+// is the honest report.
+//
+// "Stale" keeps findStaleBranches' meaning exactly (a merged PR, or work already in
+// trunk), so a sprint still in flight is never reported. Per-branch failures are
+// RETURNED rather than swallowed, the way checkMilestone reports per-issue failures in
+// finish-sprint.js: one unresolvable ref must not blank the whole check, but it must
+// not vanish either.
+function findStaleRemoteBranches(cwd, { trunk = 'main', runner = run } = {}) {
+  const listed = parseLsRemoteHeads(
+    runner('git', ['ls-remote', '--heads', 'origin', 'refs/heads/sprint/*'], { cwd }),
+  );
+
+  const stale = [];
+  const unknown = [];
+  for (const { branch } of listed) {
+    try {
+      if (isBranchMerged(cwd, branch, { trunk, runner })) stale.push(branch);
+    } catch (err) {
+      unknown.push({ branch, error: err.message });
+    }
+  }
+  return { stale, unknown };
+}
+
 // One record per worktree in `git worktree list --porcelain`, records separated
 // by a blank line. Lines are `<key> <value>` (worktree, HEAD, branch) or a bare
 // keyword with no value (detached, bare, locked, prunable). Parsed generically
@@ -319,6 +370,8 @@ function main() {
 module.exports = {
   PROFILE_LABEL_PREFIXES,
   findStaleBranches,
+  parseLsRemoteHeads,
+  findStaleRemoteBranches,
   findStaleWorktrees,
   checkDefaultBranch,
   findUntriagedIssues,
