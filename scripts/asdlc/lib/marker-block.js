@@ -17,9 +17,24 @@
 // an absent span, and the current-state pointer's position in CLAUDE.md is part
 // of its meaning, so that caller checks `found` itself and refuses.
 //
-// STILL NOT MIGRATED: `profile-block.js`. It additionally guards ``` fences —
-// its span holds a JSON fence where this one holds plain markdown — and this
-// module does not reproduce that. Moving it needs its own tests, not a drive-by.
+// MIGRATED IN v0.2-s7: `profile-block.js`, the last of the three. All the
+// original implementations now delegate their splice here, so a fourth should
+// never be written.
+//
+// The v0.2-s6 note in this spot said profile-block could not migrate because it
+// "additionally guards ``` fences and this module does not reproduce that."
+// That was wrong, and it made the job look twice its size. Its fence guard runs
+// on the CALLER'S INPUTS — the serialized profile and the assessment prose —
+// before rendering; upsertBlock never sees those values, so there was nothing
+// to reproduce. The actual blocker was that its renderer emitted the markers
+// itself, which trips assertNoMarkerText; splitting out a marker-free inner
+// renderer was the whole fix. **upsertBlock gained nothing.** If a future
+// caller seems to need this module to learn a payload rule, check first whether
+// the rule belongs to the payload rather than to the span.
+//
+// What profile-block still owns: the READ path. `parseProfile` must dig a
+// ```json payload out of the span where findBlock returns raw inner text, so it
+// delegates location here and keeps the extraction.
 
 // Both marker conventions already in the tree (`asdlc:current-state:auto`,
 // `asdlc:execution-profile`) are the same shape, so the name is the only input.
