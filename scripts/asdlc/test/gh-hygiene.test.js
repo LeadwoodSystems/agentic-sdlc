@@ -7,6 +7,8 @@ const { run } = require('../lib/exec');
 const { makeFixtureRepo } = require('./helpers/fixture-repo');
 const {
   findStaleBranches,
+  parseLsRemoteHeads,
+  findStaleRemoteBranches,
   findStaleWorktrees,
   checkDefaultBranch,
   findUntriagedIssues,
@@ -235,7 +237,7 @@ test('checkMilestoneVersionSync extracts version-like tokens from titles with ex
   }
 });
 
-test('runHygieneAudit aggregates all six checks', async () => {
+test('runHygieneAudit aggregates every check', async () => {
   const { dir, cleanup } = await makeFixtureRepo();
   try {
     const stubRunner = (cmd, args) => {
@@ -255,6 +257,7 @@ test('runHygieneAudit aggregates all six checks', async () => {
     assert.deepEqual(report.staleBranches, []);
     assert.deepEqual(report.staleWorktrees, []);
     assert.deepEqual(report.defaultBranch, { ok: true, actual: 'main' });
+    assert.deepEqual(report.staleRemoteBranches, { stale: [], unknown: [] });
     assert.deepEqual(report.untriagedIssues, []);
     assert.equal(report.milestoneSync.inSync, true);
     assert.deepEqual(report.failingScheduled, []);
@@ -263,7 +266,7 @@ test('runHygieneAudit aggregates all six checks', async () => {
   }
 });
 
-test('runHygieneAudit isolates a failing scheduled-workflow check from the other five', async () => {
+test('runHygieneAudit isolates a failing scheduled-workflow check from the rest', async () => {
   const { dir, cleanup } = await makeFixtureRepo();
   try {
     const stubRunner = (cmd, args) => {
@@ -632,7 +635,7 @@ test('findStaleWorktrees parses real `git worktree list --porcelain` output', as
   }
 });
 
-test('runHygieneAudit isolates a failing worktree check from the other five', async () => {
+test('runHygieneAudit isolates a failing worktree check from the rest', async () => {
   const { dir, cleanup } = await makeFixtureRepo();
   try {
     const stubRunner = (cmd, args) => {
@@ -747,4 +750,106 @@ test('findFailingScheduledWorkflows flags every conclusion that means the workfl
     [...conclusions].sort(),
     'narrowing the predicate must not stop it reporting the conclusions that are real reds',
   );
+});
+
+test('parseLsRemoteHeads turns ls-remote output into branch names', () => {
+  const out = 'abc1234\trefs/heads/sprint/v0.1-s1\ndef5678\trefs/heads/sprint/v0.1-s2\n';
+  assert.deepEqual(parseLsRemoteHeads(out), [
+    { sha: 'abc1234', branch: 'sprint/v0.1-s1' },
+    { sha: 'def5678', branch: 'sprint/v0.1-s2' },
+  ]);
+});
+
+test('parseLsRemoteHeads returns nothing for empty output', () => {
+  assert.deepEqual(parseLsRemoteHeads(''), []);
+});
+
+test('findStaleRemoteBranches reports merged remote branches and not unmerged ones', async () => {
+  const { dir, cleanup } = await makeFixtureRepo();
+  try {
+    const testRunner = (cmd, args) => {
+      if (cmd === 'git' && args[0] === 'ls-remote') {
+        return 'abc1234\trefs/heads/sprint/v0.1-s1\ndef5678\trefs/heads/sprint/v0.1-s2';
+      }
+      // isBranchMerged asks gh first; an empty list is a genuine "no merged PR"
+      // and falls through to the tree comparison (lib/branch-status.js:35-37).
+      if (cmd === 'gh') return '[]';
+      if (cmd === 'git' && args[0] === 'diff') {
+        if (args.includes('sprint/v0.1-s1')) return ''; // exit 0 => trees equal => merged
+        const err = new Error('git diff --quiet failed: ');
+        err.status = 1; // trees differ => still in flight
+        throw err;
+      }
+      return '';
+    };
+
+    const result = findStaleRemoteBranches(dir, { runner: testRunner });
+
+    assert.deepEqual(result.stale, ['sprint/v0.1-s1']);
+    assert.deepEqual(result.unknown, [], 'both branches were judged');
+  } finally {
+    cleanup();
+  }
+});
+
+test('findStaleRemoteBranches isolates a branch it cannot judge', async () => {
+  const { dir, cleanup } = await makeFixtureRepo();
+  try {
+    const testRunner = (cmd, args) => {
+      if (cmd === 'git' && args[0] === 'ls-remote') {
+        return 'abc1234\trefs/heads/sprint/v0.1-s1\ndef5678\trefs/heads/sprint/v0.1-s2';
+      }
+      if (cmd === 'gh') return '[]';
+      if (cmd === 'git' && args[0] === 'diff') {
+        if (args.includes('sprint/v0.1-s1')) return '';
+        // A remote-only branch whose objects were never fetched: git cannot
+        // resolve the ref. That is one branch's problem, not the audit's.
+        const err = new Error("git diff --quiet failed: fatal: bad revision 'sprint/v0.1-s2'");
+        err.status = 128;
+        throw err;
+      }
+      return '';
+    };
+
+    const result = findStaleRemoteBranches(dir, { runner: testRunner });
+
+    assert.deepEqual(result.stale, ['sprint/v0.1-s1'], 'the judgeable branch is still reported');
+    assert.equal(
+      result.unknown.length,
+      1,
+      'the branch that could not be judged must be reported, not dropped',
+    );
+    assert.equal(result.unknown[0].branch, 'sprint/v0.1-s2');
+    assert.match(result.unknown[0].error, /bad revision/, 'the reason is reported, not swallowed');
+  } finally {
+    cleanup();
+  }
+});
+
+test('runHygieneAudit isolates a failing remote-branch check without losing the others', async () => {
+  const { dir, cleanup } = await makeFixtureRepo();
+  try {
+    const testRunner = (cmd, args) => {
+      if (cmd === 'git' && args[0] === 'ls-remote') {
+        // The standing condition on the dev machine: git networking is broken.
+        const err = new Error('git ls-remote failed: fatal: unable to access');
+        err.status = 128;
+        throw err;
+      }
+      if (cmd === 'git') return run(cmd, args, { cwd: dir });
+      return '[]';
+    };
+
+    const report = runHygieneAudit(dir, { declaredTrunk: 'main', runner: testRunner });
+
+    assert.ok(
+      'staleRemoteBranches' in report,
+      'the audit must have a slot for remote sprint branches',
+    );
+    assert.match(report.staleRemoteBranches.error, /unable to access/);
+    // The local branch check is independent and must still have answered.
+    assert.deepEqual(report.staleBranches, []);
+  } finally {
+    cleanup();
+  }
 });

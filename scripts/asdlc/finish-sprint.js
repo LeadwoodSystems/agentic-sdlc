@@ -65,8 +65,44 @@ function markMerged(cwd, sprintId, sha) {
 }
 
 /**
+ * originUrl(cwd, { runner = run } = {})
+ * -> string|null — the configured `origin` URL, or null if there is no usable origin.
+ *
+ * A LOCAL config read, deliberately. It cannot reach the network, so no auth failure,
+ * unreachable host, or Git-for-Windows MSYS crash can reach it either — which is what
+ * makes it able to answer the one question `git ls-remote` cannot answer separately:
+ * "is there an origin at all?" as opposed to "could I talk to it?".
+ *
+ * Exit 1 is `git config --get`'s way of reporting an ABSENT KEY, which is an answer.
+ * Anything else (a corrupt config, a cwd that is not a git repository) is a broken
+ * invocation and propagates. This is the same discrimination lib/branch-status.js:53-60
+ * applies to `git diff --quiet`, and for the same reason: swallowing a broken invocation
+ * as a legitimate negative answer is exactly the defect this function was added to remove.
+ *
+ * A configured-but-empty value counts as absent — `git config` will hold an empty string,
+ * and an origin with no URL is not one that can be pushed to.
+ */
+function originUrl(cwd, { runner = run } = {}) {
+  try {
+    const url = runner('git', ['config', '--get', 'remote.origin.url'], { cwd });
+    return url.length > 0 ? url : null;
+  } catch (err) {
+    if (err.status === 1) return null;
+    throw err;
+  }
+}
+
+/**
  * deleteBranch(cwd, branchName, { runner = run } = {})
- * Deletes the local branch, and the remote branch if it exists.
+ * Deletes the local branch, then reports what happened to the remote one:
+ *   { remote: 'deleted' }            pushed a delete to origin
+ *   { remote: 'absent' }             origin exists, the branch is not on it
+ *   { remote: 'no-origin' }          no origin configured — nothing to delete
+ *   { remote: 'failed', error }      origin exists and the delete could not be done
+ *
+ * The result describes the REMOTE outcome only. There is no `local` field: the local
+ * delete either succeeded or threw, so a returning deleteBranch has always done it, and
+ * a field that is always true is a field callers learn to skip reading.
  *
  * SQUASH-MERGE HANDLING:
  * This plugin promotes squash-merge PRs (one clean commit per sprint).
@@ -88,6 +124,13 @@ function markMerged(cwd, sprintId, sha) {
  * diagnostic message isn't discarded.
  */
 function deleteBranch(cwd, branchName, { runner = run } = {}) {
+  // Probed BEFORE the local delete: it is a pure local read, and a broken
+  // invocation must throw while the repo is still untouched. Probing after
+  // `git branch -d` would put the one throw this function can still produce
+  // on the far side of an irreversible mutation — the half-applied finish
+  // the note below exists to prevent.
+  const origin = originUrl(cwd, { runner });
+
   // Try safe delete first
   try {
     runner('git', ['branch', '-d', branchName], { cwd });
@@ -101,20 +144,28 @@ function deleteBranch(cwd, branchName, { runner = run } = {}) {
     runner('git', ['branch', '-D', branchName], { cwd });
   }
 
-  // Check if a remote branch exists. If there's no `origin` remote at all
-  // (e.g. local-only testing scenarios), that's fine to swallow since there's
-  // nothing to delete.
-  let remote = '';
-  try {
-    remote = runner('git', ['ls-remote', '--heads', 'origin', branchName], { cwd });
-  } catch (err) {
-    return;
-  }
+  // From here the function is about the REMOTE, and every outcome is returned
+  // rather than thrown. By the time main() calls this, markMerged has already
+  // rewritten STATUS.md and the local branch is gone — so a throw would produce
+  // a raw stack trace on a half-applied finish. That is the failure mode the
+  // resolveSprintBranch note above was written to stop recurring, and it is why
+  // removeWorktreeForBranch reports rather than throws too. (The one throw this
+  // function can still produce — a broken originUrl invocation — happens above,
+  // before the local delete, precisely so it lands before any mutation.)
+  if (origin === null) return { remote: 'no-origin' };
 
-  // A genuine failure here (auth failure, branch protection, network issue)
-  // is an actionable error and must propagate to the caller, not be swallowed.
-  if (remote.length > 0) {
+  // An origin IS configured, so from here a failure is a real failure. The
+  // previous version caught this and returned, which made "I could not reach
+  // origin" indistinguishable from "there is no origin" and let main() report
+  // a remote delete that never happened. Observed live 2026-08-06:
+  // sprint/v0.2-s7 survived on GitHub after a run that exited 0.
+  try {
+    const listed = runner('git', ['ls-remote', '--heads', 'origin', branchName], { cwd });
+    if (listed.length === 0) return { remote: 'absent' };
     runner('git', ['push', 'origin', '--delete', branchName], { cwd });
+    return { remote: 'deleted' };
+  } catch (err) {
+    return { remote: 'failed', error: err.message };
   }
 }
 
@@ -230,7 +281,9 @@ function checkMilestone(cwd, issueNumbers, { runner = run } = {}) {
  * 1. Validate args (sprint-id, sha required)
  * 2. Call removeWorktreeForBranch(cwd, `sprint/${sprintId}`) — retire the worktree
  * 3. Call markMerged(cwd, sprintId, sha) — update docs/STATUS.md
- * 4. Call deleteBranch(cwd, `sprint/${sprintId}`) — clean up sprint branch
+ * 4. Call deleteBranch(cwd, branchName) — delete the branch, and report the remote
+ *    outcome. A remote branch left behind sets exitCode 1: it is debris that no gate
+ *    caught before v0.2-s8, so a silent success is how it survives.
  * 5. If issue numbers provided, call checkMilestone and report missing milestones
  *
  * ORDER: the worktree must go before the branch — git refuses to delete a
@@ -297,8 +350,24 @@ function main(argv = process.argv.slice(2), { runner = run } = {}) {
   markMerged(cwd, sprintId, sha);
   console.log(`Marked ${sprintId} as merged (${sha}) in docs/STATUS.md.`);
 
-  deleteBranch(cwd, branchName, { runner });
-  console.log(`Deleted branch ${branchName} (local + remote if present).`);
+  // The local delete and the remote outcome are separately true, so they are
+  // reported separately. The old single line — "(local + remote if present)" —
+  // was unconditional, and was the sentence that reported a remote delete that
+  // had been skipped.
+  const deleted = deleteBranch(cwd, branchName, { runner });
+  console.log(`Deleted local branch ${branchName}.`);
+  if (deleted.remote === 'deleted') {
+    console.log(`Deleted ${branchName} on origin.`);
+  } else if (deleted.remote === 'no-origin') {
+    console.log('No origin configured — nothing to delete on a remote.');
+  } else if (deleted.remote === 'failed') {
+    console.error(`Could not delete ${branchName} on origin: ${deleted.error}`);
+    console.error('The REMOTE branch still exists. Finish by hand:');
+    console.error(`    git push origin --delete ${branchName}`);
+    // Set the code rather than returning: the milestone check below is advisory
+    // and still worth running, and process.exitCode survives to the end of main.
+    process.exitCode = 1; // a branch left on the remote is not a successful finish
+  }
 
   const issueNumbers = issueArgs.map(Number).filter((n) => !Number.isNaN(n));
   if (issueNumbers.length > 0) {
@@ -320,6 +389,7 @@ module.exports = {
   parseWorktrees,
   removeWorktreeForBranch,
   checkMilestone,
+  originUrl,
   main,
 };
 
