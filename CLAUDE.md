@@ -33,8 +33,8 @@ running history: `docs/STATUS.md`. Branch discipline: one sprint = one branch
 <!-- asdlc:facts:auto -->
 <!-- Measured by `node scripts/asdlc/facts.js` from .asdlc/facts.json. Do not hand-edit: your numbers will be overwritten, and `--check` will fail until they are. -->
 
-- asdlc unit tests: **305**
-- asdlc unit tests passing: **305**
+- asdlc unit tests: **320**
+- asdlc unit tests passing: **320**
 - node: **v24.11.1**
 <!-- /asdlc:facts:auto -->
 
