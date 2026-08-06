@@ -9,7 +9,7 @@
     {
       "name": "agentic-sdlc",
       "description": "Spec-driven, checkpoint-gated build loop for large multi-session AI software builds.",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "source": "./",
       "author": {
         "name": "Leadwood Solutions",

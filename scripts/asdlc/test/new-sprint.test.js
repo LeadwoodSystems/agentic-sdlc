@@ -476,3 +476,50 @@ test('createSprint uses injected runner', async () => {
     cleanup();
   }
 });
+
+test('createSprint falls back to the plugin reference template when the repo has no _TEMPLATE.md', async () => {
+  const { dir, cleanup } = await makeFixtureRepo();
+  try {
+    const reference = path.join(dir, 'reference-plan-template.md');
+    fs.writeFileSync(reference, '# <Sprint id> — <Name> · Plan\n\n## Verification\n<fill in>\n');
+
+    const { planPath } = createSprint(dir, 'v0.1-s1', 'my-feature', {
+      referenceTemplatePath: reference,
+    });
+
+    const content = fs.readFileSync(path.join(dir, planPath), 'utf8');
+    assert.match(
+      content,
+      /## Verification/,
+      'with no _TEMPLATE.md the scaffold fell through to the two-line stub instead of the reference template',
+    );
+    assert.match(content, /v0\.1-s1 — my-feature/);
+  } finally {
+    cleanup();
+  }
+});
+
+test('createSprint prefers the repo _TEMPLATE.md over the reference template', async () => {
+  // Precedence is the whole point of the order: a project that has customised
+  // its template must not have the plugin's copy silently win.
+  const { dir, cleanup } = await makeFixtureRepo();
+  try {
+    fs.mkdirSync(path.join(dir, 'docs/superpowers/plans'), { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, 'docs/superpowers/plans/_TEMPLATE.md'),
+      '# <Sprint id> — <Name> · Plan\n\nLOCAL TEMPLATE\n',
+    );
+    const reference = path.join(dir, 'reference-plan-template.md');
+    fs.writeFileSync(reference, '# <Sprint id> — <Name> · Plan\n\nREFERENCE TEMPLATE\n');
+
+    const { planPath } = createSprint(dir, 'v0.1-s1', 'my-feature', {
+      referenceTemplatePath: reference,
+    });
+
+    const content = fs.readFileSync(path.join(dir, planPath), 'utf8');
+    assert.match(content, /LOCAL TEMPLATE/);
+    assert.doesNotMatch(content, /REFERENCE TEMPLATE/);
+  } finally {
+    cleanup();
+  }
+});

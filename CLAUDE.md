@@ -18,7 +18,7 @@ bug in the skeleton — fix it there first.
 
 ## Where the build is
 <!-- asdlc:current-state:auto -->
-**Current state:** mutation verdicts are now measured rather than reasoned - mutate.js runs the test command unmutated first and refuses an expectRed that already appears in a green run (EXPECT-RED-INERT) or a suite that was already failing (BASELINE-RED); the v0.2-s3 manifest was re-anchored on assertion messages and re-run, and all three of its verdicts held — see [handoff](docs/handoffs/v0.2-s5-mutation-baseline-gate.md)
+**Current state:** checkpoint-hooks now writes through lib/marker-block.js so a checkpoint preserves CRLF; the plugin's own command surface is being dogfooded rather than hand-copied, and three subset enumerations plus the plan-template copy are gone — see [handoff](docs/handoffs/v0.2-s6-invariant-drift.md)
 <!-- /asdlc:current-state:auto -->
 
 To resume, read the **latest** `docs/handoffs/` file (single source of truth). Full
@@ -33,8 +33,8 @@ running history: `docs/STATUS.md`. Branch discipline: one sprint = one branch
 <!-- asdlc:facts:auto -->
 <!-- Measured by `node scripts/asdlc/facts.js` from .asdlc/facts.json. Do not hand-edit: your numbers will be overwritten, and `--check` will fail until they are. -->
 
-- asdlc unit tests: **288**
-- asdlc unit tests passing: **288**
+- asdlc unit tests: **295**
+- asdlc unit tests passing: **295**
 - node: **v24.11.1**
 <!-- /asdlc:facts:auto -->
 
@@ -119,10 +119,8 @@ Node (core only) + Markdown. No build step, no runtime dependencies.
 ```
 skills/agentic-sdlc/{SKILL.md,references/}   the method
 commands/*.md                                slash commands
-scripts/asdlc/                               checkpoint-hooks, new-sprint, finish-sprint,
-                                             archive-sprint-docs, gh-hygiene, facts,
-                                             asdlc-lint, lib/{exec,branch-status,
-                                             marker-block,profile-block}
+scripts/asdlc/                               every gate and bookkeeping script (see the dir)
+scripts/asdlc/lib/                           shared seams: exec, marker spans, git state
 scripts/asdlc/test/                          node:test suite (+ helpers/fixture-repo.js)
 .asdlc/{policy/,facts.json}                  machine-read config
 docs/{superpowers/,handoffs/,STATUS.md}      plans, specs, handoffs, history

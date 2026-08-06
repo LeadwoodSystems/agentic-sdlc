@@ -1,0 +1,45 @@
+{
+  "testCommand": ["node", "--test"],
+  "mutations": [
+    {
+      "id": "STATUSEOL",
+      "why": "appendStatusEntry claims to write the existing document's line ending. Pinning it to LF is exactly the defect v0.2-s5 measured on the real STATUS.md, and no other test in the suite notices.",
+      "file": "scripts/asdlc/checkpoint-hooks.js",
+      "find": "  const eol = existing === null ? '\\n' : detectEol(existing);",
+      "replace": "  const eol = '\\n';",
+      "testArgs": ["scripts/asdlc/test/checkpoint-hooks.test.js"],
+      "label": "checkpoint-hooks:status-eol",
+      "expectRed": "the entry line ended in a literal \\n, leaving a CRLF document with mixed endings"
+    },
+    {
+      "id": "CLAUDEEOL",
+      "why": "The CLAUDE.md pointer's line ending comes from upsertBlock's detectEol default. Forcing LF reproduces the hand-rolled splice this sprint deleted; if nothing goes red, the byte-level test is not doing its job.",
+      "file": "scripts/asdlc/checkpoint-hooks.js",
+      "find": "    upsertBlock(content, CURRENT_STATE_MARKERS, `**Current state:** ${summaryLine}`),",
+      "replace": "    upsertBlock(content, CURRENT_STATE_MARKERS, `**Current state:** ${summaryLine}`, { eol: '\\n' }),",
+      "testArgs": ["scripts/asdlc/test/checkpoint-hooks.test.js"],
+      "label": "checkpoint-hooks:claude-md-eol",
+      "expectRed": "the pointer was spliced in with literal \\n, leaving a CRLF document with mixed endings"
+    },
+    {
+      "id": "TEMPLATE",
+      "why": "The reference rung is what lets this repo have no template copy. Dropping it returns new-sprint.js to the two-line stub that scaffolded this very plan - a regression whose only symptom is a worse plan file.",
+      "file": "scripts/asdlc/new-sprint.js",
+      "find": "  const templatePath = [path.join(plansDir, '_TEMPLATE.md'), referenceTemplatePath]",
+      "replace": "  const templatePath = [path.join(plansDir, '_TEMPLATE.md')]",
+      "testArgs": ["scripts/asdlc/test/new-sprint.test.js"],
+      "label": "new-sprint:reference-template-rung",
+      "expectRed": "the scaffold fell through to the two-line stub instead of the reference template"
+    },
+    {
+      "id": "HYGIENE",
+      "why": "Widening the predicate back to 'anything but success' restores the false reds on cancelled and skipped. The audit still passes its other five checks, so nothing else in the suite would notice.",
+      "file": "scripts/asdlc/gh-hygiene.js",
+      "find": "    if (FAILING_CONCLUSIONS.has(entry.conclusion)) {",
+      "replace": "    if (entry.conclusion !== 'success') {",
+      "testArgs": ["scripts/asdlc/test/gh-hygiene.test.js"],
+      "label": "gh-hygiene:failing-conclusions",
+      "expectRed": "a human cancelling a run and a path filter skipping one are not the workflow failing"
+    }
+  ]
+}

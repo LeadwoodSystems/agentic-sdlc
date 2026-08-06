@@ -190,6 +190,14 @@ function checkMilestoneVersionSync(cwd, currentSprintVersion, { runner = run } =
 // report everyone assumed was clean. The motivating case: a test red in a nightly
 // tier for roughly twelve sprints in a project whose CLAUDE.md said to check it.
 // Prose instructions to check a thing are what loop-hardening was written to replace.
+// `conclusion !== 'success'` was too wide. `cancelled` means a human stopped the
+// run and `skipped` means a path filter or an `if:` condition matched nothing —
+// in neither case did the workflow fail. asdlc-hygiene.md tells the reader to
+// treat a finding here as a real red, so the predicate has to name the
+// conclusions that actually are one. `neutral` is excluded for the same reason:
+// it is a deliberate "no verdict".
+const FAILING_CONCLUSIONS = new Set(['failure', 'timed_out', 'startup_failure', 'action_required']);
+
 function findFailingScheduledWorkflows(cwd, { runner = run } = {}) {
   const out = runner(
     'gh',
@@ -222,7 +230,7 @@ function findFailingScheduledWorkflows(cwd, { runner = run } = {}) {
 
   const findings = [];
   for (const [workflow, entry] of latest) {
-    if (entry.conclusion !== 'success') {
+    if (FAILING_CONCLUSIONS.has(entry.conclusion)) {
       findings.push({ workflow, conclusion: entry.conclusion, createdAt: entry.createdAt });
     }
   }
