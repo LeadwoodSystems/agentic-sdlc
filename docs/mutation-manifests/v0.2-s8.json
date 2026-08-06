@@ -1,0 +1,45 @@
+{
+  "testCommand": ["node", "--test"],
+  "mutations": [
+    {
+      "id": "SWALLOW",
+      "why": "This restores the exact defect of the sprint, in the new shape: an unreachable origin reported as 'the branch is not on the remote'. It is the one-line difference between the fix and the bug, and before this sprint nothing in the suite could tell them apart.",
+      "file": "scripts/asdlc/finish-sprint.js",
+      "find": "    return { remote: 'failed', error: err.message };",
+      "replace": "    return { remote: 'absent' };",
+      "testArgs": ["--test-name-pattern", "deleteBranch", "scripts/asdlc/test/finish-sprint.test.js"],
+      "label": "finish-sprint:ls-remote-failure-is-not-absence",
+      "expectRed": "an ls-remote failure with an origin configured is NOT"
+    },
+    {
+      "id": "ORIGINSTATUS",
+      "why": "Dropping the status check makes every config failure read as 'no origin', rebuilding the swallow one level down in the very function added to remove it. A corrupt config or a non-repo cwd would silently skip the remote delete again.",
+      "file": "scripts/asdlc/finish-sprint.js",
+      "find": "    if (err.status === 1) return null;",
+      "replace": "    return null;",
+      "testArgs": ["--test-name-pattern", "originUrl", "scripts/asdlc/test/finish-sprint.test.js"],
+      "label": "finish-sprint:origin-probe-discriminates-status",
+      "expectRed": "must propagate, not be read as"
+    },
+    {
+      "id": "EXITCODE",
+      "why": "The exit code is the whole difference between a finish that lied and one that did not. A human reading the console might notice the error text; a script wrapping finish-sprint.js reads only the code.",
+      "file": "scripts/asdlc/finish-sprint.js",
+      "find": "    process.exitCode = 1; // a branch left on the remote is not a successful finish",
+      "replace": "    // exit code suppressed by mutation",
+      "testArgs": ["--test-name-pattern", "main", "scripts/asdlc/test/finish-sprint.test.js"],
+      "label": "finish-sprint:leftover-remote-exits-nonzero",
+      "expectRed": "a remote branch left behind is not a successful finish"
+    },
+    {
+      "id": "UNKNOWN",
+      "why": "Per-branch isolation that swallows the reason is how debris survives in the first place - the audit would print a confident 'none' for a branch it never managed to judge. The bucket must be visible, not merely non-fatal.",
+      "file": "scripts/asdlc/gh-hygiene.js",
+      "find": "      unknown.push({ branch, error: err.message });",
+      "replace": "      /* swallowed by mutation */",
+      "testArgs": ["--test-name-pattern", "findStaleRemoteBranches", "scripts/asdlc/test/gh-hygiene.test.js"],
+      "label": "gh-hygiene:unjudged-branch-is-reported",
+      "expectRed": "must be reported, not dropped"
+    }
+  ]
+}
