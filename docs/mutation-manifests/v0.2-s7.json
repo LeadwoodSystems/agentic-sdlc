@@ -1,0 +1,45 @@
+{
+  "testCommand": ["node", "--test"],
+  "mutations": [
+    {
+      "id": "PROFILEMARKER",
+      "why": "The whole point of routing profile-block's write path through upsertBlock is that the refusal now names the span it collided with. Dropping the marker names restores the old ambiguous wording in a document that can hold more than one kind of span - and no assertion outside this sprint's would notice, because nothing else ever asserted on this message.",
+      "file": "scripts/asdlc/lib/marker-block.js",
+      "find": "      error: `Block ${markers.start} is unterminated (no closing ${markers.end}).`,",
+      "replace": "      error: 'Block is unterminated (no closing marker).',",
+      "testArgs": ["scripts/asdlc/test/lib/profile-block.test.js"],
+      "label": "marker-block:unterminated-names-marker",
+      "expectRed": "must name the marker it collided with"
+    },
+    {
+      "id": "CLIEXIT",
+      "why": "The exit code is the only thing a /checkpoint gate reads. Pinning it to zero is precisely the failure mutate.js exists to prevent - a manifest whose anchors have rotted waved through as evidence - and before this sprint no test could reach the decision at all.",
+      "file": "scripts/asdlc/mutate.js",
+      "find": "    return summarize(results).isEvidence ? 0 : 1;",
+      "replace": "    return 0;",
+      "testArgs": ["--test-name-pattern", "runCli", "scripts/asdlc/test/mutate.test.js"],
+      "label": "mutate:cli-exit-code",
+      "expectRed": "a run that is not evidence must exit non-zero"
+    },
+    {
+      "id": "CLIJSON",
+      "why": "--json exists so another tool can parse the run. Falling through to the text branch emits a table ahead of the JSON, which a parser sees as malformed input; nothing else in the suite reads the render branch.",
+      "file": "scripts/asdlc/mutate.js",
+      "find": "    if (args.json) {",
+      "replace": "    if (false) {",
+      "testArgs": ["--test-name-pattern", "runCli", "scripts/asdlc/test/mutate.test.js"],
+      "label": "mutate:cli-json-only",
+      "expectRed": "no text or markdown alongside the JSON"
+    },
+    {
+      "id": "CLIRESTORE",
+      "why": "A throw that reports before it reverts leaves a mutated file on disk looking like the author's own edit. restoreInFlight is what stops that, and the runCli path to it was untested until this sprint.",
+      "file": "scripts/asdlc/mutate.js",
+      "find": "  if (!inFlight) return;",
+      "replace": "  return;",
+      "testArgs": ["--test-name-pattern", "runCli", "scripts/asdlc/test/mutate.test.js"],
+      "label": "mutate:cli-restore-before-report",
+      "expectRed": "a throw must revert before it reports"
+    }
+  ]
+}

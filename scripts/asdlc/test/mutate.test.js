@@ -499,7 +499,7 @@ test('runCli returns 1 when the run is not evidence', (t) => {
     capture: captureQueue([GREEN]),
   });
 
-  assert.equal(code, 1);
+  assert.equal(code, 1, 'a run that is not evidence must exit non-zero');
   assert.match(s.out[0], /ANCHOR-MISS/);
 });
 
@@ -522,7 +522,7 @@ test('runCli returns 0 for a GREEN run — a finding, not a broken one', (t) => 
     capture: captureQueue([GREEN, GREEN]),
   });
 
-  assert.equal(code, 0);
+  assert.equal(code, 0, 'a GREEN run is trustworthy evidence and must exit zero');
   assert.match(s.out[0], /GREEN/);
 });
 
