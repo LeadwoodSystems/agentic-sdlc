@@ -159,7 +159,7 @@ scripts/asdlc/
   new-sprint.js           sprint-start gate + branch/plan scaffolding
   checkpoint-hooks.js     STATUS.md append + CLAUDE.md pointer rewrite
   finish-sprint.js        post-merge worktree removal, status flip, branch cleanup
-  gh-hygiene.js           read-only hygiene audit (branches, worktrees, issues, milestones)
+  gh-hygiene.js           read-only hygiene audit (local/remote branches, worktrees, issues, milestones)
   archive-sprint-docs.js  milestone-scoped archival
   facts.js                measure .asdlc/facts.json → CLAUDE.md facts block
   asdlc-lint.js           durable-context lint (stale facts, numbered rules, contradictions)

@@ -124,6 +124,13 @@ function originUrl(cwd, { runner = run } = {}) {
  * diagnostic message isn't discarded.
  */
 function deleteBranch(cwd, branchName, { runner = run } = {}) {
+  // Probed BEFORE the local delete: it is a pure local read, and a broken
+  // invocation must throw while the repo is still untouched. Probing after
+  // `git branch -d` would put the one throw this function can still produce
+  // on the far side of an irreversible mutation — the half-applied finish
+  // the note below exists to prevent.
+  const origin = originUrl(cwd, { runner });
+
   // Try safe delete first
   try {
     runner('git', ['branch', '-d', branchName], { cwd });
@@ -142,8 +149,10 @@ function deleteBranch(cwd, branchName, { runner = run } = {}) {
   // rewritten STATUS.md and the local branch is gone — so a throw would produce
   // a raw stack trace on a half-applied finish. That is the failure mode the
   // resolveSprintBranch note above was written to stop recurring, and it is why
-  // removeWorktreeForBranch reports rather than throws too.
-  if (originUrl(cwd, { runner }) === null) return { remote: 'no-origin' };
+  // removeWorktreeForBranch reports rather than throws too. (The one throw this
+  // function can still produce — a broken originUrl invocation — happens above,
+  // before the local delete, precisely so it lands before any mutation.)
+  if (origin === null) return { remote: 'no-origin' };
 
   // An origin IS configured, so from here a failure is a real failure. The
   // previous version caught this and returned, which made "I could not reach
@@ -349,6 +358,8 @@ function main(argv = process.argv.slice(2), { runner = run } = {}) {
   console.log(`Deleted local branch ${branchName}.`);
   if (deleted.remote === 'deleted') {
     console.log(`Deleted ${branchName} on origin.`);
+  } else if (deleted.remote === 'no-origin') {
+    console.log('No origin configured — nothing to delete on a remote.');
   } else if (deleted.remote === 'failed') {
     console.error(`Could not delete ${branchName} on origin: ${deleted.error}`);
     console.error('The REMOTE branch still exists. Finish by hand:');

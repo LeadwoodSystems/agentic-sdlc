@@ -237,7 +237,7 @@ test('checkMilestoneVersionSync extracts version-like tokens from titles with ex
   }
 });
 
-test('runHygieneAudit aggregates all six checks', async () => {
+test('runHygieneAudit aggregates every check', async () => {
   const { dir, cleanup } = await makeFixtureRepo();
   try {
     const stubRunner = (cmd, args) => {
@@ -257,6 +257,7 @@ test('runHygieneAudit aggregates all six checks', async () => {
     assert.deepEqual(report.staleBranches, []);
     assert.deepEqual(report.staleWorktrees, []);
     assert.deepEqual(report.defaultBranch, { ok: true, actual: 'main' });
+    assert.deepEqual(report.staleRemoteBranches, { stale: [], unknown: [] });
     assert.deepEqual(report.untriagedIssues, []);
     assert.equal(report.milestoneSync.inSync, true);
     assert.deepEqual(report.failingScheduled, []);
@@ -265,7 +266,7 @@ test('runHygieneAudit aggregates all six checks', async () => {
   }
 });
 
-test('runHygieneAudit isolates a failing scheduled-workflow check from the other five', async () => {
+test('runHygieneAudit isolates a failing scheduled-workflow check from the rest', async () => {
   const { dir, cleanup } = await makeFixtureRepo();
   try {
     const stubRunner = (cmd, args) => {
@@ -634,7 +635,7 @@ test('findStaleWorktrees parses real `git worktree list --porcelain` output', as
   }
 });
 
-test('runHygieneAudit isolates a failing worktree check from the other five', async () => {
+test('runHygieneAudit isolates a failing worktree check from the rest', async () => {
   const { dir, cleanup } = await makeFixtureRepo();
   try {
     const stubRunner = (cmd, args) => {

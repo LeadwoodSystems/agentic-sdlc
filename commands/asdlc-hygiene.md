@@ -1,5 +1,5 @@
 ---
-description: Run the ASDLC hygiene audit (stale branches, stale worktrees, default-branch drift, untriaged issues, milestone/sprint version sync, failing scheduled workflows)
+description: Run the ASDLC hygiene audit (stale branches, stale remote branches, stale worktrees, default-branch drift, untriaged issues, milestone/sprint version sync, failing scheduled workflows)
 argument-hint: [declared-trunk] [current-sprint-version]
 ---
 
@@ -16,14 +16,17 @@ Run:
 node scripts/asdlc/gh-hygiene.js <declared-trunk> <current-sprint-version>
 ```
 
-Present the six findings (stale branches, stale worktrees, default-branch mismatch,
-untriaged issues, milestone/version sync, failing scheduled workflows) as a short report.
-Each check is isolated, so a failure in one still leaves the others reported: if a
-`gh`-based check (untriaged issues, milestone/version sync, or failing scheduled
-workflows) could not run — e.g. `gh` isn't authenticated, there's no GitHub remote, or the
-network is unavailable — the tool still reports the git-based findings rather than
-failing outright. Note which check(s) could not run and why, rather than treating it as a
-hard failure.
+Present the seven findings (stale branches, stale remote sprint branches, stale worktrees,
+default-branch mismatch, untriaged issues, milestone/version sync, failing scheduled
+workflows) as a short report. Each check is isolated, so a failure in one still leaves the
+others reported: if a `gh`-based check (untriaged issues, milestone/version sync, or
+failing scheduled workflows) could not run — e.g. `gh` isn't authenticated, there's no
+GitHub remote, or the network is unavailable — the tool still reports the git-based
+findings rather than failing outright. Note which check(s) could not run and why, rather
+than treating it as a hard failure. **Stale remote sprint branches** is a third category:
+a `git` command (`git ls-remote`), not a `gh` one, but one that still needs the network to
+reach `origin` — so `could not check (…)` on that line is the same honest degradation as
+on a `gh`-based line, not a bug in the audit.
 
 **Stale worktrees** are reported per worktree with the reasons that flagged it —
 `branch-merged`, `uncommitted-changes`, `older-than-<N>d`, or `missing-directory`. Read
@@ -40,7 +43,8 @@ usually an absent report that everyone assumed was clean. Treat a finding here a
 not as noise: nothing else is watching this tier.
 
 For any finding, suggest — but do not run without confirmation — the fix:
-`git push origin --delete <branch>` for stale branches, `node
+`git branch -d <branch>` for stale (local) branches, `git push origin --delete <branch>`
+for stale remote sprint branches, `node
 scripts/asdlc/finish-sprint.js <sprint-id> <sha>` (which retires the worktree *before*
 deleting the branch) or `git worktree remove <path>` for stale worktrees, `gh api
 repos/{owner}/{repo} -X PATCH -f default_branch=<trunk>` for a default-branch mismatch,

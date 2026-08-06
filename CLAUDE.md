@@ -133,7 +133,7 @@ node --test "scripts/asdlc/test/**/*.test.js"   # the whole suite (~25s)
 node scripts/asdlc/facts.js                     # re-measure the facts span
 node scripts/asdlc/facts.js --check             # non-zero if the span is stale
 node scripts/asdlc/asdlc-lint.js                # lint this file
-node scripts/asdlc/gh-hygiene.js main v0.2      # stale branches/worktrees, triage, milestones, scheduled workflows
+node scripts/asdlc/gh-hygiene.js main v0.2      # stale local/remote branches, worktrees, triage, milestones, scheduled workflows
 ```
 
 **Shell:** PowerShell is canonical on the development machine; the Bash tool is retired

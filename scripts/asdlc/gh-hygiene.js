@@ -357,7 +357,7 @@ function main() {
   console.log('=== ASDLC hygiene audit ===');
   console.log(`Stale merged branches: ${formatCheck(report.staleBranches, (v) => (v.length ? v.join(', ') : 'none'))}`);
   console.log(`Stale remote sprint branches: ${formatCheck(report.staleRemoteBranches, (v) => {
-    const parts = [v.stale.length ? v.stale.map((b) => `${b} (git push origin --delete ${b})`).join(', ') : 'none'];
+    const parts = [v.stale.length ? v.stale.map((b) => `${b} (git push origin --delete ${b})`).join(', ') : 'none judged stale'];
     // Report what could not be judged rather than counting it as clean — the
     // whole point of this check is that unseen debris is how it survives.
     if (v.unknown.length) parts.push(`unjudged: ${v.unknown.map((u) => `${u.branch} (${u.error})`).join(', ')}`);
