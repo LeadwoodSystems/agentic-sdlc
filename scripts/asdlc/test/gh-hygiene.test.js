@@ -824,3 +824,31 @@ test('findStaleRemoteBranches isolates a branch it cannot judge', async () => {
     cleanup();
   }
 });
+
+test('runHygieneAudit isolates a failing remote-branch check without losing the others', async () => {
+  const { dir, cleanup } = await makeFixtureRepo();
+  try {
+    const testRunner = (cmd, args) => {
+      if (cmd === 'git' && args[0] === 'ls-remote') {
+        // The standing condition on the dev machine: git networking is broken.
+        const err = new Error('git ls-remote failed: fatal: unable to access');
+        err.status = 128;
+        throw err;
+      }
+      if (cmd === 'git') return run(cmd, args, { cwd: dir });
+      return '[]';
+    };
+
+    const report = runHygieneAudit(dir, { declaredTrunk: 'main', runner: testRunner });
+
+    assert.ok(
+      'staleRemoteBranches' in report,
+      'the audit must have a slot for remote sprint branches',
+    );
+    assert.match(report.staleRemoteBranches.error, /unable to access/);
+    // The local branch check is independent and must still have answered.
+    assert.deepEqual(report.staleBranches, []);
+  } finally {
+    cleanup();
+  }
+});
