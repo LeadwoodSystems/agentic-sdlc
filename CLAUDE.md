@@ -18,7 +18,7 @@ bug in the skeleton — fix it there first.
 
 ## Where the build is
 <!-- asdlc:current-state:auto -->
-**Current state:** profile-block.js now writes through lib/marker-block.js, retiring the last hand-rolled marker splice; mutate.js gains a testable runCli seam so the exit code every checkpoint reads is finally covered; the legacy loop-hardening plan is renamed to pair with its handoff — see [handoff](docs/handoffs/v0.2-s7-marker-consolidation.md)
+**Current state:** Remote-delete honesty: finish-sprint.js stops swallowing a failed remote branch delete, and gh-hygiene.js can finally see the debris it leaves — see [handoff](docs/handoffs/v0.2-s8-remote-delete-honesty.md)
 <!-- /asdlc:current-state:auto -->
 
 To resume, read the **latest** `docs/handoffs/` file (single source of truth). Full
