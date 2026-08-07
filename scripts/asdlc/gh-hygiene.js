@@ -183,11 +183,41 @@ function checkDefaultBranch(cwd, declaredTrunk, { runner = run } = {}) {
 // the model lineup turns over.
 const PROFILE_LABEL_PREFIXES = ['complexity/', 'risk/', 'execution/'];
 
+// Some issues are never executed directly and so can never carry an execution
+// class: epics are trackers decomposed into sub-issues, and decision tickets
+// (#33) produce an ADR rather than code. Flagging them `no-execution-profile`
+// puts work on the worklist that no amount of profiling can ever clear, which
+// is how a worklist stops being read at all.
+//
+// Matched by prefix for the same reason PROFILE_LABEL_PREFIXES is: adding
+// `kind/decision` when #33 lands is a tracker action, not a code change.
+// Deliberately one prefix rather than a set of permitted kinds - this audit has
+// no reason to care WHICH non-executable kind an issue is, only that it is one,
+// and enumerating them here would rebuild the exact-value coupling the prefix
+// exists to avoid.
+const NON_EXECUTABLE_KIND_PREFIX = 'kind/';
+
+// The one kind that trades its exemption for a different completeness check
+// rather than getting a free pass. See findUntriagedIssues below.
+const EPIC_KIND_LABEL = 'kind/epic';
+
+function labelNames(labels) {
+  return (labels || []).map((label) => label.name || '');
+}
+
 function hasProfileLabels(labels) {
-  const names = (labels || []).map((label) => label.name || '');
+  const names = labelNames(labels);
   return PROFILE_LABEL_PREFIXES.every(
     (prefix) => names.some((name) => name.startsWith(prefix)),
   );
+}
+
+function isNonExecutable(labels) {
+  return labelNames(labels).some((name) => name.startsWith(NON_EXECUTABLE_KIND_PREFIX));
+}
+
+function isEpic(labels) {
+  return labelNames(labels).includes(EPIC_KIND_LABEL);
 }
 
 // gh's default page size for `issue list` is 30. With no explicit --limit every
@@ -208,10 +238,23 @@ function findUntriagedIssues(cwd, { runner = run } = {}) {
   const out = runner(
     'gh',
     ['issue', 'list', '--state', 'open', '--limit', String(ISSUE_LIST_LIMIT),
-      '--json', 'number,labels,milestone'],
+      '--json', 'number,labels,milestone,parent'],
     { cwd },
   );
   const issues = JSON.parse(out);
+  // Built from the page already in hand, not a second request: `parent` comes
+  // back populated on every sub-issue, so the parent->child map costs nothing.
+  //
+  // It can only see OPEN children, because that is what this call lists. That
+  // limit is not hidden - it is why the finding below is named
+  // `epic-without-open-sub-issues` and not `epic-without-sub-issues`. An epic
+  // whose children have all been closed WILL be flagged, and the name says
+  // exactly why rather than claiming the epic has no children at all. Same
+  // convention as facts.js's **UNMEASURED** and staleRemoteBranches' `unjudged:`
+  // - a check states what it measured, never what it wished it could measure.
+  const openParents = new Set(
+    issues.map((issue) => issue.parent && issue.parent.number).filter(Boolean),
+  );
   const findings = [];
   for (const issue of issues) {
     if (!issue.labels || issue.labels.length === 0) {
@@ -220,10 +263,17 @@ function findUntriagedIssues(cwd, { runner = run } = {}) {
     if (!issue.milestone) {
       findings.push({ number: issue.number, reason: 'no-milestone' });
     }
+    // An epic trades the execution-profile check for this one rather than
+    // simply escaping it: a tracker with nothing open under it is either
+    // finished (close it) or was never decomposed (decompose it).
+    if (isEpic(issue.labels) && !openParents.has(issue.number)) {
+      findings.push({ number: issue.number, reason: 'epic-without-open-sub-issues' });
+    }
     // Reported independently of 'no-labels' (rather than skipped as redundant
     // for a bare issue) so that filtering the audit by this one reason yields
-    // the complete "needs /profile-issue" worklist.
-    if (!hasProfileLabels(issue.labels)) {
+    // the complete "needs /profile-issue" worklist. Non-executable kinds are
+    // excluded from that worklist because no profile could ever clear them.
+    if (!isNonExecutable(issue.labels) && !hasProfileLabels(issue.labels)) {
       findings.push({ number: issue.number, reason: 'no-execution-profile' });
     }
   }
@@ -445,6 +495,8 @@ function main() {
 module.exports = {
   ISSUE_LIST_LIMIT,
   PROFILE_LABEL_PREFIXES,
+  NON_EXECUTABLE_KIND_PREFIX,
+  EPIC_KIND_LABEL,
   findStaleBranches,
   parseLsRemoteHeads,
   findStaleRemoteBranches,
