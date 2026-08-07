@@ -1,0 +1,35 @@
+{
+  "testCommand": ["node", "--test"],
+  "mutations": [
+    {
+      "id": "LIMITDROP",
+      "why": "The #57 defect itself: with the flag gone gh silently falls back to 30 and the audit renders a truncated list as the complete worklist. Nothing in the suite could see the absent argument before this sprint.",
+      "file": "scripts/asdlc/gh-hygiene.js",
+      "find": "'--limit', String(ISSUE_LIST_LIMIT),",
+      "replace": "",
+      "testArgs": ["scripts/asdlc/test/gh-hygiene.test.js"],
+      "label": "bounds the fetch explicitly",
+      "expectRed": "no --limit passed"
+    },
+    {
+      "id": "CAPBLIND",
+      "why": "The bound is only honest because something checks whether it was hit. Hard-coding the detector to false restores exactly the silence the fix removes, while leaving every other assertion green - so this is the mutation that proves the cap check, not the limit, is doing the work.",
+      "file": "scripts/asdlc/gh-hygiene.js",
+      "find": "truncated: issues.length >= ISSUE_LIST_LIMIT",
+      "replace": "truncated: false",
+      "testArgs": ["scripts/asdlc/test/gh-hygiene.test.js"],
+      "label": "reports a full page as possibly truncated",
+      "expectRed": "false !== true"
+    },
+    {
+      "id": "NOTICEDROP",
+      "why": "Detecting the cap and never telling the human is the same failure one layer up: the report line would read 'none' for a backlog nobody finished reading. Targets the renderer rather than the detector, so it isolates the half CAPBLIND does not cover.",
+      "file": "scripts/asdlc/gh-hygiene.js",
+      "find": "if (v.truncated) parts.push(",
+      "replace": "if (false) parts.push(",
+      "testArgs": ["scripts/asdlc/test/gh-hygiene.test.js"],
+      "label": "reports a full page as possibly truncated",
+      "expectRed": "TRUNCATED"
+    }
+  ]
+}
