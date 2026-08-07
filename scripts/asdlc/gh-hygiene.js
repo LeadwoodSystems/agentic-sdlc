@@ -190,10 +190,25 @@ function hasProfileLabels(labels) {
   );
 }
 
+// gh's default page size for `issue list` is 30. With no explicit --limit every
+// issue past the thirtieth is invisible and the remainder renders as a complete
+// worklist - the same "reads as clean" failure the scheduled-workflow check
+// documents at its own --limit below, which this call never received.
+//
+// A raised bound rather than `gh api --paginate`: `gh issue list` returns issues
+// only, while the REST /issues endpoint --paginate would reach also returns pull
+// requests, so paginating means discriminating on the `pull_request` key and
+// remapping fields to preserve this JSON shape - new logic, and new bug surface,
+// inside a straight bug fix. The bound stays; `truncated` below is what stops it
+// from ever lying. Deliberately not configurable: no setting should be able to
+// make this audit under-report in silence.
+const ISSUE_LIST_LIMIT = 1000;
+
 function findUntriagedIssues(cwd, { runner = run } = {}) {
   const out = runner(
     'gh',
-    ['issue', 'list', '--state', 'open', '--json', 'number,labels,milestone'],
+    ['issue', 'list', '--state', 'open', '--limit', String(ISSUE_LIST_LIMIT),
+      '--json', 'number,labels,milestone'],
     { cwd },
   );
   const issues = JSON.parse(out);
@@ -418,6 +433,7 @@ function main() {
 }
 
 module.exports = {
+  ISSUE_LIST_LIMIT,
   PROFILE_LABEL_PREFIXES,
   findStaleBranches,
   parseLsRemoteHeads,

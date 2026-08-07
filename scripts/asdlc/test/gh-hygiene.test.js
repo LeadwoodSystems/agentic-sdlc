@@ -15,6 +15,7 @@ const {
   checkMilestoneVersionSync,
   findFailingScheduledWorkflows,
   runHygieneAudit,
+  ISSUE_LIST_LIMIT,
 } = require('../gh-hygiene');
 
 // `git worktree list --porcelain` emits FORWARD-slash paths even on Windows
@@ -204,6 +205,24 @@ test('findUntriagedIssues still flags an issue missing just one routing axis', a
     assert.deepEqual(findUntriagedIssues(dir, { runner: stubRunner }), [
       { number: 7, reason: 'no-execution-profile' },
     ]);
+  } finally {
+    cleanup();
+  }
+});
+
+test('findUntriagedIssues bounds the fetch explicitly instead of taking gh default page', async () => {
+  const { dir, cleanup } = await makeFixtureRepo();
+  try {
+    // Asserting on the ARGUMENTS, not on the parsed output. The stub runner
+    // ignores what it is handed and returns whatever this test says, so it can
+    // never reproduce gh's server-side cap - an output-shaped test here would
+    // pass on the unfixed code and prove nothing. The absent flag IS the bug.
+    let seen = null;
+    const stubRunner = (cmd, args) => { seen = args; return '[]'; };
+    findUntriagedIssues(dir, { runner: stubRunner });
+    const at = seen.indexOf('--limit');
+    assert.notEqual(at, -1, 'no --limit passed: gh falls back to 30 and truncates in silence');
+    assert.equal(seen[at + 1], String(ISSUE_LIST_LIMIT));
   } finally {
     cleanup();
   }
