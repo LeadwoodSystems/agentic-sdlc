@@ -1,5 +1,5 @@
 ---
-description: Run the ASDLC hygiene audit (stale branches, stale remote branches, stale worktrees, default-branch drift, untriaged issues, milestone/sprint version sync, failing scheduled workflows)
+description: Run the ASDLC hygiene audit (stale merged branches, stale remote sprint branches, stale worktrees, default branch, untriaged issues, milestone/sprint version sync, failing scheduled workflows)
 argument-hint: [declared-trunk] [current-sprint-version]
 ---
 
@@ -16,9 +16,9 @@ Run:
 node scripts/asdlc/gh-hygiene.js <declared-trunk> <current-sprint-version>
 ```
 
-Present the seven findings (stale branches, stale remote sprint branches, stale worktrees,
-default-branch mismatch, untriaged issues, milestone/version sync, failing scheduled
-workflows) as a short report. Each check is isolated, so a failure in one still leaves the
+Present the seven findings (stale merged branches, stale remote sprint branches, stale
+worktrees, default branch, untriaged issues, milestone/sprint version sync, failing
+scheduled workflows) as a short report. Each check is isolated, so a failure in one still leaves the
 others reported: if a `gh`-based check (untriaged issues, milestone/version sync, or
 failing scheduled workflows) could not run — e.g. `gh` isn't authenticated, there's no
 GitHub remote, or the network is unavailable — the tool still reports the git-based
