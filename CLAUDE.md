@@ -18,7 +18,7 @@ bug in the skeleton — fix it there first.
 
 ## Where the build is
 <!-- asdlc:current-state:auto -->
-**Current state:** Remote-delete honesty: finish-sprint.js stops swallowing a failed remote branch delete, and gh-hygiene.js can finally see the debris it leaves — see [handoff](docs/handoffs/v0.2-s8-remote-delete-honesty.md)
+**Current state:** Command prose is now gated against the scripts it describes: one HYGIENE_CHECKS array is the single source of gh-hygiene's check set, and a two-tier test fails when asdlc-hygiene.md's findings list or count drifts from it — see [handoff](docs/handoffs/v0.2-s9-command-prose-gate.md)
 <!-- /asdlc:current-state:auto -->
 
 To resume, read the **latest** `docs/handoffs/` file (single source of truth). Full
@@ -33,8 +33,8 @@ running history: `docs/STATUS.md`. Branch discipline: one sprint = one branch
 <!-- asdlc:facts:auto -->
 <!-- Measured by `node scripts/asdlc/facts.js` from .asdlc/facts.json. Do not hand-edit: your numbers will be overwritten, and `--check` will fail until they are. -->
 
-- asdlc unit tests: **320**
-- asdlc unit tests passing: **320**
+- asdlc unit tests: **323**
+- asdlc unit tests passing: **323**
 - node: **v24.11.1**
 <!-- /asdlc:facts:auto -->
 

@@ -1,0 +1,55 @@
+{
+  "testCommand": ["node", "--test"],
+  "mutations": [
+    {
+      "id": "PATHBREAK",
+      "why": "The v0.2-s4 defect itself: command prose points at a script that is not there, and a consumer following it hits a missing file. Nothing in the suite could see a command file before this sprint.",
+      "file": "commands/sprint.md",
+      "find": "node scripts/asdlc/new-sprint.js",
+      "replace": "node scripts/asdlc/new-sprint-typo.js",
+      "testArgs": ["scripts/asdlc/test/command-prose.test.js"],
+      "label": "command-prose:named-scripts-exist",
+      "expectRed": "names scripts that do not exist"
+    },
+    {
+      "id": "TIER1INERT",
+      "why": "A gate that matches no paths at all would pass silently and report success forever. This is the inert-gate failure mode the guard clause exists for, and nothing else in the suite would notice it.",
+      "file": "scripts/asdlc/test/command-prose.test.js",
+      "find": "const SCRIPT_PATH = /scripts\\/asdlc\\/[A-Za-z0-9_./-]*\\.js/g;",
+      "replace": "const SCRIPT_PATH = /scripts\\/asdlc\\/NEVERMATCHES\\.js/g;",
+      "testArgs": ["scripts/asdlc/test/command-prose.test.js"],
+      "label": "command-prose:tier1-is-not-inert",
+      "expectRed": "matched no script paths at all"
+    },
+    {
+      "id": "LABELDROP",
+      "why": "This is the v0.2-s8 defect itself: the script grows a check the command prose never mentions, so an agent following the prose reports a subset and calls it a clean audit. The anchor carries the 'Present the seven findings (' prefix because task 5 rewrote the frontmatter description to the same labels - without it this anchor matches two lines and proves nothing.",
+      "file": "commands/asdlc-hygiene.md",
+      "find": "Present the seven findings (stale merged branches, stale remote sprint branches, stale",
+      "replace": "Present the seven findings (stale merged branches, stale",
+      "testArgs": ["scripts/asdlc/test/command-prose.test.js"],
+      "label": "command-prose:findings-list-matches-script",
+      "expectRed": "omits checks the script runs"
+    },
+    {
+      "id": "NUMERAL",
+      "why": "The literal count is what s8 actually got wrong. It is a separate assertion from the label match - a list can name every check while the numeral still says six.",
+      "file": "commands/asdlc-hygiene.md",
+      "find": "Present the seven findings",
+      "replace": "Present the six findings",
+      "testArgs": ["scripts/asdlc/test/command-prose.test.js"],
+      "label": "command-prose:numeral-matches-check-count",
+      "expectRed": "findings but gh-hygiene.js runs"
+    },
+    {
+      "id": "CHECKDROP",
+      "why": "Drift from the other side: the script renames a reported check while the prose still promises the old name. Without the manifest this direction was undetectable, because nothing connected the two. Mutates the label, not the key, because the label is the field the prose gate compares - a renamed key is invisible here by design (and is caught by gh-hygiene.test.js instead). Renaming rather than deleting keeps HYGIENE_CHECKS.length at 7, so the numeral assertion stays green and this isolates the label assertion.",
+      "file": "scripts/asdlc/gh-hygiene.js",
+      "find": "    label: 'Failing scheduled workflows',",
+      "replace": "    label: 'Failing scheduled workflows MUTATED',",
+      "testArgs": ["scripts/asdlc/test/command-prose.test.js"],
+      "label": "command-prose:script-drift-is-caught",
+      "expectRed": "omits checks the script runs"
+    }
+  ]
+}

@@ -321,16 +321,67 @@ function safeCheck(fn) {
   }
 }
 
+// The one place the check set is written down. runHygieneAudit builds its result
+// from it, main() renders from it, and command-prose.test.js reads its labels —
+// so adding a check here is the whole of adding a check. Order is report order.
+const HYGIENE_CHECKS = [
+  {
+    key: 'staleBranches',
+    label: 'Stale merged branches',
+    run: (cwd, c) => findStaleBranches(cwd, { trunk: c.declaredTrunk, runner: c.runner }),
+    format: (v) => (v.length ? v.join(', ') : 'none'),
+  },
+  {
+    key: 'staleRemoteBranches',
+    label: 'Stale remote sprint branches',
+    run: (cwd, c) => findStaleRemoteBranches(cwd, { trunk: c.declaredTrunk, runner: c.runner }),
+    format: (v) => {
+      const parts = [v.stale.length ? v.stale.map((b) => `${b} (git push origin --delete ${b})`).join(', ') : 'none judged stale'];
+      // Report what could not be judged rather than counting it as clean — the
+      // whole point of this check is that unseen debris is how it survives.
+      if (v.unknown.length) parts.push(`unjudged: ${v.unknown.map((u) => `${u.branch} (${u.error})`).join(', ')}`);
+      return parts.join(' · ');
+    },
+  },
+  {
+    key: 'staleWorktrees',
+    label: 'Stale worktrees',
+    run: (cwd, c) => findStaleWorktrees(cwd, { trunk: c.declaredTrunk, runner: c.runner }),
+    format: (v) => (v.length ? v.map((w) => `${w.path} [${w.branch || 'detached'}] (${w.reasons.join(', ')})`).join('; ') : 'none'),
+  },
+  {
+    key: 'defaultBranch',
+    label: 'Default branch',
+    run: (cwd, c) => checkDefaultBranch(cwd, c.declaredTrunk, { runner: c.runner }),
+    format: (v, c) => (v.ok ? 'OK' : `MISMATCH (origin/HEAD -> ${v.actual}, expected ${c.declaredTrunk})`),
+  },
+  {
+    key: 'untriagedIssues',
+    label: 'Untriaged issues',
+    run: (cwd, c) => findUntriagedIssues(cwd, { runner: c.runner }),
+    format: (v) => (v.length ? v.map((i) => `#${i.number} (${i.reason})`).join(', ') : 'none'),
+  },
+  {
+    key: 'milestoneSync',
+    label: 'Milestone/sprint version sync',
+    run: (cwd, c) => checkMilestoneVersionSync(cwd, c.currentSprintVersion, { runner: c.runner }),
+    format: (v) => (v.inSync ? 'OK' : `OUT OF SYNC (milestones: ${v.milestoneVersions.join(', ')})`),
+  },
+  {
+    key: 'failingScheduled',
+    label: 'Failing scheduled workflows',
+    run: (cwd, c) => findFailingScheduledWorkflows(cwd, { runner: c.runner }),
+    format: (v) => (v.length ? v.map((w) => `${w.workflow} (${w.conclusion}, ${w.createdAt})`).join(', ') : 'none'),
+  },
+];
+
 function runHygieneAudit(cwd, { declaredTrunk, currentSprintVersion, runner = run } = {}) {
-  return {
-    staleBranches: safeCheck(() => findStaleBranches(cwd, { trunk: declaredTrunk, runner })),
-    staleRemoteBranches: safeCheck(() => findStaleRemoteBranches(cwd, { trunk: declaredTrunk, runner })),
-    staleWorktrees: safeCheck(() => findStaleWorktrees(cwd, { trunk: declaredTrunk, runner })),
-    defaultBranch: safeCheck(() => checkDefaultBranch(cwd, declaredTrunk, { runner })),
-    untriagedIssues: safeCheck(() => findUntriagedIssues(cwd, { runner })),
-    milestoneSync: safeCheck(() => checkMilestoneVersionSync(cwd, currentSprintVersion, { runner })),
-    failingScheduled: safeCheck(() => findFailingScheduledWorkflows(cwd, { runner })),
-  };
+  const ctx = { declaredTrunk, currentSprintVersion, runner };
+  const report = {};
+  for (const check of HYGIENE_CHECKS) {
+    report[check.key] = safeCheck(() => check.run(cwd, ctx));
+  }
+  return report;
 }
 
 // A check's slot in the report is a safeCheck() failure marker (as opposed to
@@ -354,24 +405,14 @@ function main() {
   }
   const report = runHygieneAudit(process.cwd(), { declaredTrunk, currentSprintVersion });
 
-  console.log('=== ASDLC hygiene audit ===');
-  console.log(`Stale merged branches: ${formatCheck(report.staleBranches, (v) => (v.length ? v.join(', ') : 'none'))}`);
-  console.log(`Stale remote sprint branches: ${formatCheck(report.staleRemoteBranches, (v) => {
-    const parts = [v.stale.length ? v.stale.map((b) => `${b} (git push origin --delete ${b})`).join(', ') : 'none judged stale'];
-    // Report what could not be judged rather than counting it as clean — the
-    // whole point of this check is that unseen debris is how it survives.
-    if (v.unknown.length) parts.push(`unjudged: ${v.unknown.map((u) => `${u.branch} (${u.error})`).join(', ')}`);
-    return parts.join(' · ');
-  })}`);
-  console.log(`Stale worktrees: ${formatCheck(report.staleWorktrees, (v) => (v.length ? v.map((w) => `${w.path} [${w.branch || 'detached'}] (${w.reasons.join(', ')})`).join('; ') : 'none'))}`);
-  console.log(`Default branch: ${formatCheck(report.defaultBranch, (v) => (v.ok ? 'OK' : `MISMATCH (origin/HEAD -> ${v.actual}, expected ${declaredTrunk})`))}`);
-  console.log(`Untriaged issues: ${formatCheck(report.untriagedIssues, (v) => (v.length ? v.map((i) => `#${i.number} (${i.reason})`).join(', ') : 'none'))}`);
-  console.log(`Milestone/sprint version sync: ${formatCheck(report.milestoneSync, (v) => (v.inSync ? 'OK' : `OUT OF SYNC (milestones: ${v.milestoneVersions.join(', ')})`))}`);
-  console.log(`Failing scheduled workflows: ${formatCheck(report.failingScheduled, (v) => (v.length ? v.map((w) => `${w.workflow} (${w.conclusion}, ${w.createdAt})`).join(', ') : 'none'))}`);
+  const ctx = { declaredTrunk, currentSprintVersion };
 
-  const anyCheckFailed = ['staleBranches', 'staleRemoteBranches', 'staleWorktrees', 'defaultBranch', 'untriagedIssues', 'milestoneSync', 'failingScheduled']
-    .some((key) => isCheckError(report[key]));
-  if (anyCheckFailed) {
+  console.log('=== ASDLC hygiene audit ===');
+  for (const check of HYGIENE_CHECKS) {
+    console.log(`${check.label}: ${formatCheck(report[check.key], (v) => check.format(v, ctx))}`);
+  }
+
+  if (HYGIENE_CHECKS.some((check) => isCheckError(report[check.key]))) {
     process.exitCode = 1;
   }
 }
@@ -386,6 +427,7 @@ module.exports = {
   findUntriagedIssues,
   checkMilestoneVersionSync,
   findFailingScheduledWorkflows,
+  HYGIENE_CHECKS,
   runHygieneAudit,
 };
 
