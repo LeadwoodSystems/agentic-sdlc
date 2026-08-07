@@ -227,7 +227,11 @@ function findUntriagedIssues(cwd, { runner = run } = {}) {
       findings.push({ number: issue.number, reason: 'no-execution-profile' });
     }
   }
-  return findings;
+  // A full page back means gh may have had more to give. `>=` rather than `===`:
+  // on an exactly-at-the-limit backlog this reports possible truncation when the
+  // list may in fact be complete. A false alarm is recoverable; the silent
+  // version is the defect being fixed, so the bias goes this way deliberately.
+  return { findings, truncated: issues.length >= ISSUE_LIST_LIMIT };
 }
 
 function checkMilestoneVersionSync(cwd, currentSprintVersion, { runner = run } = {}) {
@@ -374,7 +378,13 @@ const HYGIENE_CHECKS = [
     key: 'untriagedIssues',
     label: 'Untriaged issues',
     run: (cwd, c) => findUntriagedIssues(cwd, { runner: c.runner }),
-    format: (v) => (v.length ? v.map((i) => `#${i.number} (${i.reason})`).join(', ') : 'none'),
+    format: (v) => {
+      const parts = [v.findings.length ? v.findings.map((i) => `#${i.number} (${i.reason})`).join(', ') : 'none'];
+      // Same reasoning as staleRemoteBranches above: report what could not be
+      // seen rather than letting a bounded list read as the whole list.
+      if (v.truncated) parts.push(`TRUNCATED: hit the ${ISSUE_LIST_LIMIT}-issue limit, list may be incomplete`);
+      return parts.join(' · ');
+    },
   },
   {
     key: 'milestoneSync',
