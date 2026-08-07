@@ -25,6 +25,11 @@ To resume, read the **latest** `docs/handoffs/` file (single source of truth). F
 running history: `docs/STATUS.md`. Branch discipline: one sprint = one branch
 `sprint/vX.Y-sN`, squash-merged to `main` via PR.
 
+**Next initiative (not yet started):** Capability Layer & Public Maturity — 47 issues on
+one milestone, build sequence and reasoning in
+[docs/2026-08-07-capability-layer-roadmap.md](docs/2026-08-07-capability-layer-roadmap.md).
+Epic 1 (#11) is profiled and ready; Epics 2–6 are not.
+
 > The text between the markers above is owned by `scripts/asdlc/checkpoint-hooks.js` —
 > it is rewritten on every `/checkpoint`. Never hand-edit between the markers; if they're
 > missing, add them back rather than letting the script warn and skip.
