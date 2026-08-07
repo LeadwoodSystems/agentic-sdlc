@@ -32,6 +32,16 @@ on a `gh`-based line, not a bug in the audit.
 in `TRUNCATED: …`, the repo had at least that many open issues and the list is bounded, not
 complete — do not treat it as the whole worklist.
 
+**Issues carrying a `kind/` label are exempt from `no-execution-profile`** — an epic or a
+decision ticket is never executed directly, so no execution class could ever be assigned to
+it and the finding could never be cleared. The exemption is scoped to that one reason: a
+`kind/`-labelled issue is still reported for `no-labels` and `no-milestone`. Epics trade the
+profile check for `epic-without-open-sub-issues`, which fires when nothing open sits under
+the tracker — either it is finished and should be closed, or it was never decomposed. The
+check reads the open-issue list, so an epic whose sub-issues have all been closed will be
+flagged; the reason is named for what was measured rather than asserting the epic has no
+children at all.
+
 **Stale worktrees** are reported per worktree with the reasons that flagged it —
 `branch-merged`, `uncommitted-changes`, `older-than-<N>d`, or `missing-directory`. Read
 them together, don't collapse them: a merged, clean, recent worktree is routine cleanup,
@@ -54,7 +64,8 @@ deleting the branch) or `git worktree remove <path>` for stale worktrees, `gh ap
 repos/{owner}/{repo} -X PATCH -f default_branch=<trunk>` for a default-branch mismatch,
 `gh issue edit <n> --add-label <label>` / `--milestone <name>` for untriaged issues,
 `/profile-issue <n>` for any issue reported as `no-execution-profile` (missing one of the
-`complexity/`, `risk/`, `execution/` routing labels), and `gh run view --log-failed` for a
+`complexity/`, `risk/`, `execution/` routing labels), `gh issue edit <n> --add-label kind/epic` for a tracker still sitting on that worklist,
+decomposition (or closing it) for `epic-without-open-sub-issues`, and `gh run view --log-failed` for a
 failing scheduled workflow.
 
 **Never `--force` a worktree removal on the user's behalf.** A worktree flagged
