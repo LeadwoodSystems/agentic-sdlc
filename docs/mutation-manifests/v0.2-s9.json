@@ -43,10 +43,10 @@
     },
     {
       "id": "CHECKDROP",
-      "why": "Drift from the other side: the script loses a check while the prose still promises it. Without the manifest this direction was undetectable, because nothing connected the two.",
+      "why": "Drift from the other side: the script renames a reported check while the prose still promises the old name. Without the manifest this direction was undetectable, because nothing connected the two. Mutates the label, not the key, because the label is the field the prose gate compares - a renamed key is invisible here by design (and is caught by gh-hygiene.test.js instead). Renaming rather than deleting keeps HYGIENE_CHECKS.length at 7, so the numeral assertion stays green and this isolates the label assertion.",
       "file": "scripts/asdlc/gh-hygiene.js",
-      "find": "    key: 'failingScheduled',",
-      "replace": "    key: 'failingScheduledMUTATED',",
+      "find": "    label: 'Failing scheduled workflows',",
+      "replace": "    label: 'Failing scheduled workflows MUTATED',",
       "testArgs": ["scripts/asdlc/test/command-prose.test.js"],
       "label": "command-prose:script-drift-is-caught",
       "expectRed": "omits checks the script runs"
