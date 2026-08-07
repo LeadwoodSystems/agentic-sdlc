@@ -65,8 +65,9 @@ repos/{owner}/{repo} -X PATCH -f default_branch=<trunk>` for a default-branch mi
 `gh issue edit <n> --add-label <label>` / `--milestone <name>` for untriaged issues,
 `/profile-issue <n>` for any issue reported as `no-execution-profile` (missing one of the
 `complexity/`, `risk/`, `execution/` routing labels), `gh issue edit <n> --add-label kind/epic` for a tracker still sitting on that worklist,
-decomposition (or closing it) for `epic-without-open-sub-issues`, and `gh run view --log-failed` for a
-failing scheduled workflow.
+`gh issue close <n>` for an epic reported `epic-without-open-sub-issues` whose work is
+genuinely finished, or decomposition into sub-issues for one that was never broken down,
+and `gh run view --log-failed` for a failing scheduled workflow.
 
 **Never `--force` a worktree removal on the user's behalf.** A worktree flagged
 `uncommitted-changes` holds the only copy of that work; surface the file list and let the
