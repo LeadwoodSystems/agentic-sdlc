@@ -18,7 +18,7 @@ bug in the skeleton — fix it there first.
 
 ## Where the build is
 <!-- asdlc:current-state:auto -->
-**Current state:** Command prose is now gated against the scripts it describes: one HYGIENE_CHECKS array is the single source of gh-hygiene's check set, and a two-tier test fails when asdlc-hygiene.md's findings list or count drifts from it — see [handoff](docs/handoffs/v0.2-s9-command-prose-gate.md)
+**Current state:** gh-hygiene now sees every open issue and says so when it cannot: one ISSUE_LIST_LIMIT feeds both the --limit and the cap detector, findUntriagedIssues returns {findings, truncated}, and the live audit went 30 -> 39 findings — see [handoff](docs/handoffs/v0.3-s1-hygiene-issue-limit.md)
 <!-- /asdlc:current-state:auto -->
 
 To resume, read the **latest** `docs/handoffs/` file (single source of truth). Full
@@ -38,8 +38,8 @@ Epic 1 (#11) is profiled and ready; Epics 2–6 are not.
 <!-- asdlc:facts:auto -->
 <!-- Measured by `node scripts/asdlc/facts.js` from .asdlc/facts.json. Do not hand-edit: your numbers will be overwritten, and `--check` will fail until they are. -->
 
-- asdlc unit tests: **323**
-- asdlc unit tests passing: **323**
+- asdlc unit tests: **327**
+- asdlc unit tests passing: **327**
 - node: **v24.11.1**
 <!-- /asdlc:facts:auto -->
 

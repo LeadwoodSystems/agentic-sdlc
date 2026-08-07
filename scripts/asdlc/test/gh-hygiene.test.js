@@ -15,6 +15,8 @@ const {
   checkMilestoneVersionSync,
   findFailingScheduledWorkflows,
   runHygieneAudit,
+  ISSUE_LIST_LIMIT,
+  HYGIENE_CHECKS,
 } = require('../gh-hygiene');
 
 // `git worktree list --porcelain` emits FORWARD-slash paths even on Windows
@@ -157,13 +159,16 @@ test('findUntriagedIssues flags no-labels, no-milestone and no-execution-profile
       { number: 3, labels: [{ name: 'bug' }], milestone: { title: 'v0.9' } },
     ]);
     const result = findUntriagedIssues(dir, { runner: stubRunner });
-    assert.deepEqual(result, [
-      { number: 1, reason: 'no-labels' },
-      { number: 1, reason: 'no-execution-profile' },
-      { number: 2, reason: 'no-milestone' },
-      { number: 2, reason: 'no-execution-profile' },
-      { number: 3, reason: 'no-execution-profile' },
-    ]);
+    assert.deepEqual(result, {
+      findings: [
+        { number: 1, reason: 'no-labels' },
+        { number: 1, reason: 'no-execution-profile' },
+        { number: 2, reason: 'no-milestone' },
+        { number: 2, reason: 'no-execution-profile' },
+        { number: 3, reason: 'no-execution-profile' },
+      ],
+      truncated: false,
+    });
   } finally {
     cleanup();
   }
@@ -184,7 +189,7 @@ test('findUntriagedIssues clears an issue carrying all three routing labels', as
         milestone: { title: 'v0.9' },
       },
     ]);
-    assert.deepEqual(findUntriagedIssues(dir, { runner: stubRunner }), []);
+    assert.deepEqual(findUntriagedIssues(dir, { runner: stubRunner }), { findings: [], truncated: false });
   } finally {
     cleanup();
   }
@@ -201,12 +206,79 @@ test('findUntriagedIssues still flags an issue missing just one routing axis', a
         milestone: { title: 'v0.9' },
       },
     ]);
-    assert.deepEqual(findUntriagedIssues(dir, { runner: stubRunner }), [
-      { number: 7, reason: 'no-execution-profile' },
-    ]);
+    assert.deepEqual(findUntriagedIssues(dir, { runner: stubRunner }), {
+      findings: [{ number: 7, reason: 'no-execution-profile' }],
+      truncated: false,
+    });
   } finally {
     cleanup();
   }
+});
+
+test('findUntriagedIssues bounds the fetch explicitly instead of taking gh default page', async () => {
+  const { dir, cleanup } = await makeFixtureRepo();
+  try {
+    // Asserting on the ARGUMENTS, not on the parsed output. The stub runner
+    // ignores what it is handed and returns whatever this test says, so it can
+    // never reproduce gh's server-side cap - an output-shaped test here would
+    // pass on the unfixed code and prove nothing. The absent flag IS the bug.
+    let seen = null;
+    const stubRunner = (cmd, args) => { seen = args; return '[]'; };
+    findUntriagedIssues(dir, { runner: stubRunner });
+    const at = seen.indexOf('--limit');
+    assert.notEqual(at, -1, 'no --limit passed: gh falls back to 30 and truncates in silence');
+    assert.equal(seen[at + 1], String(ISSUE_LIST_LIMIT));
+  } finally {
+    cleanup();
+  }
+});
+
+test('findUntriagedIssues reports a full page as possibly truncated', async () => {
+  const { dir, cleanup } = await makeFixtureRepo();
+  try {
+    // Every stub issue is fully profiled, so findings comes back empty. That is
+    // the dangerous case on purpose: a bare "none" reads as a clean backlog when
+    // the real reason is that nothing past the cap was ever looked at.
+    const full = Array.from({ length: ISSUE_LIST_LIMIT }, (_, n) => ({
+      number: n + 1,
+      labels: [{ name: 'complexity/low' }, { name: 'risk/low' }, { name: 'execution/fast' }],
+      milestone: { title: 'v0.3' },
+    }));
+    const result = findUntriagedIssues(dir, { runner: () => JSON.stringify(full) });
+    assert.equal(result.truncated, true);
+    assert.deepEqual(result.findings, []);
+
+    const check = HYGIENE_CHECKS.find((c) => c.key === 'untriagedIssues');
+    assert.match(check.format(result), /TRUNCATED/);
+  } finally {
+    cleanup();
+  }
+});
+
+test('findUntriagedIssues stays quiet about truncation on a short page', async () => {
+  const { dir, cleanup } = await makeFixtureRepo();
+  try {
+    const stubRunner = () => JSON.stringify([{ number: 1, labels: [], milestone: null }]);
+    const result = findUntriagedIssues(dir, { runner: stubRunner });
+    assert.equal(result.truncated, false);
+
+    const check = HYGIENE_CHECKS.find((c) => c.key === 'untriagedIssues');
+    assert.doesNotMatch(check.format(result), /TRUNCATED/);
+  } finally {
+    cleanup();
+  }
+});
+
+test('the truncation notice is appended to real findings, never instead of them', () => {
+  // The spec's central claim, and the reason "throw on cap" was rejected: a
+  // possible extra issue must not blank out the real ones already collected.
+  // Asserting the whole string also pins the exact notice wording and the
+  // U+00B7 separator, which /TRUNCATED/ alone would let drift.
+  const check = HYGIENE_CHECKS.find((c) => c.key === 'untriagedIssues');
+  assert.equal(
+    check.format({ findings: [{ number: 3, reason: 'no-labels' }], truncated: true }),
+    `#3 (no-labels) · TRUNCATED: hit the ${ISSUE_LIST_LIMIT}-issue limit, list may be incomplete`,
+  );
 });
 
 test('checkMilestoneVersionSync detects a version scheme mismatch', async () => {
@@ -258,7 +330,10 @@ test('runHygieneAudit aggregates every check', async () => {
     assert.deepEqual(report.staleWorktrees, []);
     assert.deepEqual(report.defaultBranch, { ok: true, actual: 'main' });
     assert.deepEqual(report.staleRemoteBranches, { stale: [], unknown: [] });
-    assert.deepEqual(report.untriagedIssues, []);
+    // Also pins that isCheckError does not mistake the new two-key shape for a
+    // safeCheck failure marker - {findings, truncated} sits directly on top of
+    // {error}, and a match here would render a real result as "could not check".
+    assert.deepEqual(report.untriagedIssues, { findings: [], truncated: false });
     assert.equal(report.milestoneSync.inSync, true);
     assert.deepEqual(report.failingScheduled, []);
   } finally {
@@ -289,7 +364,7 @@ test('runHygieneAudit isolates a failing scheduled-workflow check from the rest'
     assert.deepEqual(report.staleBranches, []);
     assert.deepEqual(report.staleWorktrees, []);
     assert.deepEqual(report.defaultBranch, { ok: true, actual: 'main' });
-    assert.deepEqual(report.untriagedIssues, []);
+    assert.deepEqual(report.untriagedIssues, { findings: [], truncated: false });
     assert.equal(report.milestoneSync.inSync, true);
   } finally {
     cleanup();
@@ -393,7 +468,7 @@ test('runHygieneAudit isolates a failing git-based check too, so a gh-based resu
     });
     assert.equal(typeof report.staleBranches.error, 'string');
     assert.equal(typeof report.defaultBranch.error, 'string');
-    assert.deepEqual(report.untriagedIssues, []);
+    assert.deepEqual(report.untriagedIssues, { findings: [], truncated: false });
     assert.equal(report.milestoneSync.inSync, true);
   } finally {
     cleanup();
@@ -657,7 +732,7 @@ test('runHygieneAudit isolates a failing worktree check from the rest', async ()
     assert.match(report.staleWorktrees.error, /not a git repository/);
     assert.deepEqual(report.staleBranches, []);
     assert.deepEqual(report.defaultBranch, { ok: true, actual: 'main' });
-    assert.deepEqual(report.untriagedIssues, []);
+    assert.deepEqual(report.untriagedIssues, { findings: [], truncated: false });
     assert.equal(report.milestoneSync.inSync, true);
     assert.deepEqual(report.failingScheduled, []);
   } finally {

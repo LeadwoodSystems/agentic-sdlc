@@ -28,6 +28,10 @@ a `git` command (`git ls-remote`), not a `gh` one, but one that still needs the 
 reach `origin` — so `could not check (…)` on that line is the same honest degradation as
 on a `gh`-based line, not a bug in the audit.
 
+**Untriaged issues** is fetched with an explicit cap; if the `Untriaged issues` line ends
+in `TRUNCATED: …`, the repo had at least that many open issues and the list is bounded, not
+complete — do not treat it as the whole worklist.
+
 **Stale worktrees** are reported per worktree with the reasons that flagged it —
 `branch-merged`, `uncommitted-changes`, `older-than-<N>d`, or `missing-directory`. Read
 them together, don't collapse them: a merged, clean, recent worktree is routine cleanup,
