@@ -269,6 +269,18 @@ test('findUntriagedIssues stays quiet about truncation on a short page', async (
   }
 });
 
+test('the truncation notice is appended to real findings, never instead of them', () => {
+  // The spec's central claim, and the reason "throw on cap" was rejected: a
+  // possible extra issue must not blank out the real ones already collected.
+  // Asserting the whole string also pins the exact notice wording and the
+  // U+00B7 separator, which /TRUNCATED/ alone would let drift.
+  const check = HYGIENE_CHECKS.find((c) => c.key === 'untriagedIssues');
+  assert.equal(
+    check.format({ findings: [{ number: 3, reason: 'no-labels' }], truncated: true }),
+    `#3 (no-labels) · TRUNCATED: hit the ${ISSUE_LIST_LIMIT}-issue limit, list may be incomplete`,
+  );
+});
+
 test('checkMilestoneVersionSync detects a version scheme mismatch', async () => {
   const { dir, cleanup } = await makeFixtureRepo();
   try {
