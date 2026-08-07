@@ -405,24 +405,14 @@ function main() {
   }
   const report = runHygieneAudit(process.cwd(), { declaredTrunk, currentSprintVersion });
 
-  console.log('=== ASDLC hygiene audit ===');
-  console.log(`Stale merged branches: ${formatCheck(report.staleBranches, (v) => (v.length ? v.join(', ') : 'none'))}`);
-  console.log(`Stale remote sprint branches: ${formatCheck(report.staleRemoteBranches, (v) => {
-    const parts = [v.stale.length ? v.stale.map((b) => `${b} (git push origin --delete ${b})`).join(', ') : 'none judged stale'];
-    // Report what could not be judged rather than counting it as clean — the
-    // whole point of this check is that unseen debris is how it survives.
-    if (v.unknown.length) parts.push(`unjudged: ${v.unknown.map((u) => `${u.branch} (${u.error})`).join(', ')}`);
-    return parts.join(' · ');
-  })}`);
-  console.log(`Stale worktrees: ${formatCheck(report.staleWorktrees, (v) => (v.length ? v.map((w) => `${w.path} [${w.branch || 'detached'}] (${w.reasons.join(', ')})`).join('; ') : 'none'))}`);
-  console.log(`Default branch: ${formatCheck(report.defaultBranch, (v) => (v.ok ? 'OK' : `MISMATCH (origin/HEAD -> ${v.actual}, expected ${declaredTrunk})`))}`);
-  console.log(`Untriaged issues: ${formatCheck(report.untriagedIssues, (v) => (v.length ? v.map((i) => `#${i.number} (${i.reason})`).join(', ') : 'none'))}`);
-  console.log(`Milestone/sprint version sync: ${formatCheck(report.milestoneSync, (v) => (v.inSync ? 'OK' : `OUT OF SYNC (milestones: ${v.milestoneVersions.join(', ')})`))}`);
-  console.log(`Failing scheduled workflows: ${formatCheck(report.failingScheduled, (v) => (v.length ? v.map((w) => `${w.workflow} (${w.conclusion}, ${w.createdAt})`).join(', ') : 'none'))}`);
+  const ctx = { declaredTrunk, currentSprintVersion };
 
-  const anyCheckFailed = ['staleBranches', 'staleRemoteBranches', 'staleWorktrees', 'defaultBranch', 'untriagedIssues', 'milestoneSync', 'failingScheduled']
-    .some((key) => isCheckError(report[key]));
-  if (anyCheckFailed) {
+  console.log('=== ASDLC hygiene audit ===');
+  for (const check of HYGIENE_CHECKS) {
+    console.log(`${check.label}: ${formatCheck(report[check.key], (v) => check.format(v, ctx))}`);
+  }
+
+  if (HYGIENE_CHECKS.some((check) => isCheckError(report[check.key]))) {
     process.exitCode = 1;
   }
 }
