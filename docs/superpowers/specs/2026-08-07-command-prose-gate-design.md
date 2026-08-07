@@ -135,12 +135,23 @@ Ten paths across five command files resolve today
 (`handoff.md` and `verify-issue.md` name no scripts), so this **ships green as a regression
 guard, not a fix**. It is the v0.2-s4 failure mode, gated.
 
-**Tier 2 — the hygiene findings list matches the script.** Two assertions:
+**Tier 2 — the hygiene findings list matches the script.** Both assertions read the same
+regex match against the "Present the … findings (…)" sentence:
 
-1. Every `HYGIENE_CHECKS[].label` appears case-insensitively in `commands/asdlc-hygiene.md`.
+1. Every `HYGIENE_CHECKS[].label` appears case-insensitively **inside that sentence's
+   parenthetical**.
 2. The spelled-out numeral in "Present the **seven** findings" equals `HYGIENE_CHECKS.length`,
    via a small word-to-number lookup. Seven checks today; the lookup covers zero through
    twelve and the test fails loudly rather than silently passing if the count outgrows it.
+
+**Why the parenthetical and not the whole file.** Scoping matters here more than it looks.
+The check set is written **twice** in `asdlc-hygiene.md` — once in the frontmatter
+`description:` (line 2) and once in the findings sentence (lines 19-21). A whole-file
+case-insensitive match would pass when a label was deleted from the findings sentence but
+left in the description, while the agent following the sentence under-reports. That is the
+v0.2-s8 bug surviving its own gate. The parenthetical is the instruction the agent actually
+executes, so it is the thing worth gating. The frontmatter description gets rewritten to the
+same labels this sprint, but stays ungated — see Known limits.
 
 ### 3. Prose rewrite
 
@@ -173,6 +184,10 @@ Stated here so they do not get discovered as gaps later.
 - The gate proves prose and script **agree**, not that either is **right**. A label that is
   wrong in both places passes.
 - Tier 1 checks existence only, not that a command's description of a script is accurate.
+- **`asdlc-hygiene.md`'s frontmatter `description:` stays ungated.** It is rewritten to the
+  labels this sprint, but it sits outside the findings parenthetical and nothing checks it
+  afterwards. Gating it would need a second, looser matcher, which reintroduces the
+  whole-file weakness the scoping decision above exists to avoid.
 - Consumers get none of this — `test/` is excluded from bootstrap by design.
 - `main()` in `gh-hygiene.js` remains untested generally (carried from s8), so the refactored
   rendering is verified by a live run and mutation, not by a unit test.
@@ -182,10 +197,11 @@ Stated here so they do not get discovered as gaps later.
 - Suite total, from `node --test "scripts/asdlc/test/**/*.test.js"`. 320 at the s8 handoff;
   the new total gets measured at checkpoint rather than predicted here.
 - `docs/mutation-manifests/v0.2-s9.json`, proving the gate bites rather than merely existing.
-  Four mutations, each naming the assertion it must turn red:
-  remove one label from the prose list (tier 2, label match); break a script path in a command
-  file (tier 1); change the numeral in "Present the seven findings" (tier 2, count); drop an
-  entry from `HYGIENE_CHECKS` (tier 2, count — from the other side).
+  Five mutations, each naming the assertion it must turn red: break a script path in a command
+  file (tier 1, the real defect); blind the tier 1 pattern so it matches nothing (tier 1's
+  inert-gate guard); remove one label from the prose list (tier 2, label match); change the
+  numeral in "Present the seven findings" (tier 2, count); rename a `HYGIENE_CHECKS` key so the
+  script drifts from prose rather than the reverse (tier 2, label match from the other side).
   Every anchor confirmed to match exactly one line before the run.
 - `node scripts/asdlc/gh-hygiene.js main v0.2` before and after the refactor, diffed, to show
   rendering is byte-identical.
