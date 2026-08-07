@@ -47,15 +47,16 @@ handed and returns all 46 regardless, so it never reproduces `gh`'s server-side 
 thing being fixed is the *absent argument*, and a stub that does not read arguments cannot
 observe it. A test that cannot fail is not evidence
 (`references/test-mutation-evidence.md`). The regression test therefore asserts on the
-**arguments the runner receives**, not on the parsed output. AC bullet 6 on the issue should
-be corrected to match.
+**arguments the runner receives**, not on the parsed output. **Test Coverage** bullet 1 on
+the issue should be corrected to match.
 
 **Truncation cannot be reported without changing the return shape.** `findUntriagedIssues`
 returns a bare array. `isCheckError` (`:391-394`) treats a genuine result as "an array, or an
 object with its own shape", reserving exactly `{ error: string }` for a `safeCheck` failure.
 An object with two keys cannot collide with that, so `{ findings, truncated }` is safe — but
-it does modify roughly nine existing assertions, which contradicts the issue's AC bullet
-"existing `no-labels` / `no-milestone` / `no-execution-profile` cases still pass unmodified".
+it does modify seven existing assertions, which contradicts the issue's **Test Coverage**
+bullet 4, "existing `no-labels` / `no-milestone` / `no-execution-profile` cases still pass
+unmodified".
 That bullet is superseded; the behaviour those cases assert is preserved exactly, only their
 shape changes.
 
@@ -196,6 +197,8 @@ audit itself — the list whose single-purpose filterability `:208-213` exists t
 
 ## Follow-ups to record at handoff
 
-1. **Correct #57's acceptance criteria** — bullet 6 (the inert regression test) and the
-   "existing cases pass unmodified" bullet are both superseded by this design.
+1. **Correct #57's Test Coverage section** — bullet 1 (the inert regression test) and
+   bullet 4 ("existing cases pass unmodified") are both superseded by this design. Note it is
+   the **Test Coverage** list, not Acceptance Criteria; all six acceptance criteria hold as
+   written.
 2. **Note the shape change for #37**, which modifies this same function and its tests next.
