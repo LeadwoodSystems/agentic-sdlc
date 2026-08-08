@@ -8,7 +8,10 @@ const { makeFixtureRepo } = require('./helpers/fixture-repo');
 const {
   markMerged,
   deleteBranch,
+  deleteRemoteOnly,
   resolveSprintBranch,
+  resolveRemoteSprintBranch,
+  currentBranch,
   removeWorktreeForBranch,
   checkMilestone,
   originUrl,
@@ -321,6 +324,12 @@ test('deleteBranch reports a genuine push --delete failure instead of swallowing
       if (args[0] === 'push') {
         throw new Error('push origin --delete sprint/v0.1-s1 failed: remote: protected branch hook declined');
       }
+      // The gh fallback must fail too, or this is no longer a test about a
+      // genuine failure being reported: a protected-branch rule rejects the
+      // API delete exactly as it rejects the push.
+      if (cmd === 'gh') {
+        throw new Error('gh api failed: HTTP 403: Protected branch update failed');
+      }
       return '';
     };
 
@@ -331,6 +340,7 @@ test('deleteBranch reports a genuine push --delete failure instead of swallowing
     // rewritten STATUS.md and the local branch is already gone by this point.
     assert.equal(result.remote, 'failed', 'a push --delete failure must be reported as failed');
     assert.match(result.error, /protected branch hook declined/);
+    assert.match(result.fallbackError, /Protected branch update failed/);
   } finally {
     cleanup();
   }
@@ -397,6 +407,11 @@ test('deleteBranch reports failed when ls-remote fails and an origin exists', as
         err.status = 128;
         throw err;
       }
+      // Both routes must fail for this to remain a test about a genuine failure
+      // being reported rather than swallowed.
+      if (cmd === 'gh') {
+        throw new Error('gh api failed: HTTP 401: Bad credentials');
+      }
       return '';
     };
 
@@ -408,6 +423,7 @@ test('deleteBranch reports failed when ls-remote fails and an origin exists', as
       'an ls-remote failure with an origin configured is NOT "nothing to delete"',
     );
     assert.match(result.error, /could not read Username/);
+    assert.match(result.fallbackError, /Bad credentials/);
   } finally {
     cleanup();
   }
@@ -977,5 +993,301 @@ test('main() leaves the exit code alone on a clean finish', async () => {
     console.log = originalLog;
     process.exitCode = originalExitCode;
     cleanup();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// v0.3-s4: the three finish-sprint findings from running v0.3-s3 end to end.
+// See docs/2026-08-08-sprint-loop-findings.md findings 1-3.
+// ---------------------------------------------------------------------------
+
+test('deleteBranch falls back to gh when git push cannot authenticate', async () => {
+  const { dir, cleanup } = await makeFixtureRepo();
+  try {
+    const calls = [];
+    const testRunner = (cmd, args) => {
+      calls.push([cmd, ...args].join(' '));
+      if (args[0] === 'config') return 'https://example.invalid/r.git';
+      if (args[0] === 'ls-remote') return 'abc1234\trefs/heads/sprint/v0.1-s1';
+      if (args[0] === 'push') {
+        // The real thing on a Git-for-Windows host: MSYS dies, git falls back to
+        // an askpass helper, and run() attaches no stdin so it cannot prompt.
+        throw new Error("fatal: could not read Username for 'https://github.com': terminal prompts disabled");
+      }
+      return '';
+    };
+
+    const result = deleteBranch(dir, 'sprint/v0.1-s1', { runner: testRunner });
+
+    assert.deepEqual(result, { remote: 'deleted', via: 'gh' });
+    assert.ok(
+      calls.some((c) => c === 'gh api -X DELETE repos/{owner}/{repo}/git/refs/heads/sprint/v0.1-s1'),
+      `expected a gh ref delete; got: ${calls.join(' | ')}`,
+    );
+  } finally {
+    cleanup();
+  }
+});
+
+test('deleteBranch leaves the git-path result shape untouched when push succeeds', async () => {
+  const { dir, cleanup } = await makeFixtureRepo();
+  try {
+    const testRunner = (cmd, args) => {
+      if (cmd === 'gh') throw new Error('gh must not be called when the push works');
+      if (args[0] === 'config') return 'https://example.invalid/r.git';
+      if (args[0] === 'ls-remote') return 'abc1234\trefs/heads/sprint/v0.1-s1';
+      return '';
+    };
+
+    // No `via` on the git path: callers comparing against { remote: 'deleted' }
+    // must keep working, which is what lets the fallback be additive.
+    assert.deepEqual(deleteBranch(dir, 'sprint/v0.1-s1', { runner: testRunner }), { remote: 'deleted' });
+  } finally {
+    cleanup();
+  }
+});
+
+test('markMerged is idempotent when the entry is already merged', async () => {
+  const { dir, cleanup } = await makeFixtureRepo();
+  try {
+    fs.mkdirSync(path.join(dir, 'docs'), { recursive: true });
+    const line = '- 2026-08-08 **v0.1-s1** — did a thing — status: merged (abc1234)\n';
+    fs.writeFileSync(path.join(dir, 'docs/STATUS.md'), line);
+
+    // Must not throw: after a partial finish, re-running is the operator's only
+    // way to retry the step that actually failed.
+    assert.equal(markMerged(dir, 'v0.1-s1', 'def5678'), 'already-merged');
+    assert.equal(
+      fs.readFileSync(path.join(dir, 'docs/STATUS.md'), 'utf8'),
+      line,
+      'an already-merged entry must be left byte-identical, not re-stamped with the new sha',
+    );
+  } finally {
+    cleanup();
+  }
+});
+
+test('markMerged still reports flipping when it does the work', async () => {
+  const { dir, cleanup } = await makeFixtureRepo();
+  try {
+    fs.mkdirSync(path.join(dir, 'docs'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'docs/STATUS.md'), '- **v0.1-s1** — x — status: awaiting-merge\n');
+    assert.equal(markMerged(dir, 'v0.1-s1', 'abc1234'), 'flipped');
+  } finally {
+    cleanup();
+  }
+});
+
+test('resolveRemoteSprintBranch matches exactly, then by slug', async () => {
+  const { dir, cleanup } = await makeFixtureRepo();
+  try {
+    const exact = (cmd, args) => (args[0] === 'ls-remote' ? 'a1\trefs/heads/sprint/v0.1-s1' : '');
+    assert.deepEqual(resolveRemoteSprintBranch(dir, 'v0.1-s1', { runner: exact }), { branch: 'sprint/v0.1-s1' });
+
+    const slug = (cmd, args) => (args[0] === 'ls-remote' ? 'a1\trefs/heads/sprint/v0.1-s1-the-slug' : '');
+    assert.deepEqual(resolveRemoteSprintBranch(dir, 'v0.1-s1', { runner: slug }), { branch: 'sprint/v0.1-s1-the-slug' });
+  } finally {
+    cleanup();
+  }
+});
+
+test('resolveRemoteSprintBranch separates not-found from unreachable', async () => {
+  const { dir, cleanup } = await makeFixtureRepo();
+  try {
+    const empty = (cmd, args) => (args[0] === 'ls-remote' ? '' : '');
+    assert.equal(resolveRemoteSprintBranch(dir, 'v0.1-s1', { runner: empty }).reason, 'not-found');
+
+    // "origin says no" and "I could not ask origin" are different answers, and
+    // collapsing them is the defect the origin/ls-remote split exists to avoid.
+    const broken = (cmd, args) => {
+      if (args[0] === 'ls-remote') throw new Error('could not read Username');
+      return '';
+    };
+    const result = resolveRemoteSprintBranch(dir, 'v0.1-s1', { runner: broken });
+    assert.equal(result.reason, 'unreachable');
+    assert.match(result.error, /could not read Username/);
+  } finally {
+    cleanup();
+  }
+});
+
+test('resolveRemoteSprintBranch reports several candidates rather than guessing', async () => {
+  const { dir, cleanup } = await makeFixtureRepo();
+  try {
+    const many = (cmd, args) => (args[0] === 'ls-remote'
+      ? 'a1\trefs/heads/sprint/v0.1-s1-one\na2\trefs/heads/sprint/v0.1-s1-two'
+      : '');
+    const result = resolveRemoteSprintBranch(dir, 'v0.1-s1', { runner: many });
+    assert.equal(result.branch, null);
+    assert.equal(result.reason, 'ambiguous');
+    assert.deepEqual(result.candidates.sort(), ['sprint/v0.1-s1-one', 'sprint/v0.1-s1-two']);
+  } finally {
+    cleanup();
+  }
+});
+
+test('resolveRemoteSprintBranch requires the hyphen, so v0.1-s1 never matches v0.1-s10', async () => {
+  const { dir, cleanup } = await makeFixtureRepo();
+  try {
+    const decoy = (cmd, args) => (args[0] === 'ls-remote' ? 'a1\trefs/heads/sprint/v0.1-s10-x' : '');
+    assert.equal(resolveRemoteSprintBranch(dir, 'v0.1-s1', { runner: decoy }).reason, 'not-found');
+  } finally {
+    cleanup();
+  }
+});
+
+test('currentBranch separates a detached HEAD from an unknown branch', async () => {
+  const { dir, cleanup } = await makeFixtureRepo();
+  try {
+    assert.equal(currentBranch(dir, { runner: () => 'main' }), 'main');
+    // git's own answer for a detached HEAD, kept as-is so the caller can say so.
+    assert.equal(currentBranch(dir, { runner: () => 'HEAD' }), 'HEAD');
+    // Nothing back is "I do not know" — a caller must not treat it as a mismatch,
+    // or every stubbed runner in this suite would trip the trunk warning.
+    assert.equal(currentBranch(dir, { runner: () => '' }), null);
+  } finally {
+    cleanup();
+  }
+});
+
+test('deleteRemoteOnly reports no-origin without touching the network', async () => {
+  const { dir, cleanup } = await makeFixtureRepo();
+  try {
+    const noOrigin = (cmd, args) => {
+      if (args[0] === 'config') { const e = new Error('not set'); e.status = 1; throw e; }
+      throw new Error('nothing else may run when there is no origin');
+    };
+    assert.deepEqual(deleteRemoteOnly(dir, 'sprint/v0.1-s1', { runner: noOrigin }), { remote: 'no-origin' });
+  } finally {
+    cleanup();
+  }
+});
+test('main finishes the remote side when a partial run already deleted the local branch', async () => {
+  const { dir, cleanup } = await makeFixtureRepo();
+  try {
+    const statusPath = path.join(dir, 'docs/STATUS.md');
+    fs.mkdirSync(path.dirname(statusPath), { recursive: true });
+    // Exactly the state v0.3-s3's partial finish left behind: STATUS already
+    // flipped, local branch already gone, remote branch still there.
+    fs.writeFileSync(statusPath, '- 2026-08-08 **v0.3-s3** — x — [h](h.md) — status: merged (d800bda)\n');
+
+    const calls = [];
+    const runner = (cmd, args) => {
+      calls.push([cmd, ...args].join(' '));
+      if (args[0] === 'for-each-ref') return '';                       // no local branch
+      if (args[0] === 'config') return 'https://example.invalid/r.git';
+      if (args[0] === 'ls-remote') return 'a1\trefs/heads/sprint/v0.3-s3';
+      if (args[0] === 'rev-parse') return 'main';
+      return '';
+    };
+
+    const cwd = process.cwd();
+    const logs = [];
+    const origLog = console.log;
+    const origExitCode = process.exitCode;
+    process.chdir(dir);
+    console.log = (m) => logs.push(String(m));
+    try {
+      main(['v0.3-s3', 'd800bda'], { runner });
+    } finally {
+      console.log = origLog;
+      process.chdir(cwd);
+    }
+
+    // Before this path existed, main() refused here — so the remote branch could
+    // never be cleaned up by re-running, and the operator's only recourse was the
+    // `git push` that had already failed.
+    assert.ok(
+      calls.some((c) => c === 'git push origin --delete sprint/v0.3-s3'),
+      `expected the remote delete to be retried; got: ${calls.join(' | ')}`,
+    );
+    assert.match(logs.join('\n'), /already gone; finishing the remote side only/);
+    assert.match(logs.join('\n'), /already marked merged/);
+    assert.notEqual(process.exitCode, 1, 'a completed resume is a successful finish');
+    process.exitCode = origExitCode;
+  } finally {
+    await cleanup();
+  }
+});
+
+test('main warns which branch received the STATUS.md edit when it is not the trunk', async () => {
+  const { dir, cleanup } = await makeFixtureRepo();
+  try {
+    const statusPath = path.join(dir, 'docs/STATUS.md');
+    fs.mkdirSync(path.dirname(statusPath), { recursive: true });
+    fs.writeFileSync(statusPath, '- 2026-08-08 **v0.1-s1** — x — [h](h.md) — status: awaiting-merge\n');
+
+    const runner = (cmd, args, opts = {}) => {
+      if (args[0] === 'for-each-ref') return 'sprint/v0.1-s1';
+      if (args[0] === 'worktree') return 'worktree C:/repos/x\nbranch refs/heads/main\n';
+      if (args[0] === 'config') return 'https://example.invalid/r.git';
+      if (args[0] === 'ls-remote') return '';
+      // The observed case: finishing while an unrelated follow-up branch is out.
+      if (args[0] === 'rev-parse') return 'docs/some-follow-up';
+      return '';
+    };
+
+    const cwd = process.cwd();
+    const warnings = [];
+    const origWarn = console.warn;
+    const origLog = console.log;
+    const origExitCode = process.exitCode;
+    process.chdir(dir);
+    console.warn = (m) => warnings.push(String(m));
+    console.log = () => {};
+    try {
+      main(['v0.1-s1', 'abc1234'], { runner });
+    } finally {
+      console.warn = origWarn;
+      console.log = origLog;
+      process.chdir(cwd);
+    }
+
+    const text = warnings.join('\n');
+    assert.match(text, /docs\/STATUS\.md is being edited on docs\/some-follow-up, not main/);
+    assert.match(text, /machine-owned/);
+    process.exitCode = origExitCode;
+  } finally {
+    await cleanup();
+  }
+});
+
+test('main does not warn when it is run from the trunk', async () => {
+  const { dir, cleanup } = await makeFixtureRepo();
+  try {
+    const statusPath = path.join(dir, 'docs/STATUS.md');
+    fs.mkdirSync(path.dirname(statusPath), { recursive: true });
+    fs.writeFileSync(statusPath, '- 2026-08-08 **v0.1-s1** — x — [h](h.md) — status: awaiting-merge\n');
+
+    const runner = (cmd, args) => {
+      if (args[0] === 'for-each-ref') return 'sprint/v0.1-s1';
+      if (args[0] === 'worktree') return 'worktree C:/repos/x\nbranch refs/heads/main\n';
+      if (args[0] === 'config') return 'https://example.invalid/r.git';
+      if (args[0] === 'ls-remote') return '';
+      if (args[0] === 'rev-parse') return 'build/v0.1';
+      return '';
+    };
+
+    const cwd = process.cwd();
+    const warnings = [];
+    const origWarn = console.warn;
+    const origLog = console.log;
+    const origExitCode = process.exitCode;
+    process.chdir(dir);
+    console.warn = (m) => warnings.push(String(m));
+    console.log = () => {};
+    try {
+      // --trunk is what makes the guard usable in a repo whose trunk is not main.
+      main(['--trunk', 'build/v0.1', 'v0.1-s1', 'abc1234'], { runner });
+    } finally {
+      console.warn = origWarn;
+      console.log = origLog;
+      process.chdir(cwd);
+    }
+
+    assert.deepEqual(warnings, [], `no warning expected on the declared trunk; got: ${warnings.join(' | ')}`);
+    process.exitCode = origExitCode;
+  } finally {
+    await cleanup();
   }
 });

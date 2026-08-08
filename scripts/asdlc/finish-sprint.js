@@ -43,10 +43,81 @@ function resolveSprintBranch(cwd, sprintId, { runner = run } = {}) {
 }
 
 /**
- * markMerged(cwd, sprintId, sha)
+ * resolveRemoteSprintBranch(cwd, sprintId, { runner = run } = {})
+ * -> { branch } | { branch: null, reason: 'not-found'|'ambiguous'|'unreachable', ... }
+ *
+ * The same exact-then-slug matching as resolveSprintBranch, asked of `origin`.
+ *
+ * WHY: after a partial finish the LOCAL branch is gone and the remote one is not,
+ * so resolveSprintBranch reports `not-found` and main() refuses — which means a
+ * re-run can never clean up the remote, and the operator's only recourse is the
+ * `git push` that already failed. That is the hole that made v0.3-s3's partial
+ * failure unrecoverable by re-running.
+ *
+ * `unreachable` is kept distinct from `not-found`: "origin says this branch does
+ * not exist" and "I could not ask origin" are different answers, and collapsing
+ * them is the same defect deleteBranch's origin/ls-remote split exists to avoid.
+ */
+function resolveRemoteSprintBranch(cwd, sprintId, { runner = run } = {}) {
+  let listed;
+  try {
+    listed = runner('git', ['ls-remote', '--heads', 'origin', `refs/heads/sprint/${sprintId}`, `refs/heads/sprint/${sprintId}-*`], { cwd });
+  } catch (err) {
+    return { branch: null, reason: 'unreachable', error: err.message };
+  }
+
+  const names = listed
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .map((l) => l.split('\t')[1])
+    .filter(Boolean)
+    .map((ref) => ref.replace(/^refs\/heads\//, ''));
+
+  const exact = `sprint/${sprintId}`;
+  if (names.includes(exact)) return { branch: exact };
+
+  // The `-*` refspec above cannot distinguish `sprint/v0.2-s1-x` from
+  // `sprint/v0.2-s10-x`, so the hyphen is re-checked here for the same reason
+  // resolveSprintBranch requires it locally.
+  const candidates = names.filter((n) => n.startsWith(`${exact}-`));
+  if (candidates.length === 1) return { branch: candidates[0] };
+  if (candidates.length > 1) return { branch: null, reason: 'ambiguous', candidates };
+  return { branch: null, reason: 'not-found' };
+}
+
+/**
+ * currentBranch(cwd, { runner = run } = {}) -> string|null
+ * The checked-out branch name, `'HEAD'` on a detached HEAD (git's own answer),
+ * or null when git returned nothing at all.
+ *
+ * The null case is "I do not know", not "no branch", and callers must treat it
+ * as unknown rather than as a mismatch. Warning on an unknown branch would be
+ * asserting something this function did not learn.
+ */
+function currentBranch(cwd, { runner = run } = {}) {
+  const name = runner('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd }).trim();
+  return name.length > 0 ? name : null;
+}
+
+/**
+ * markMerged(cwd, sprintId, sha) -> 'flipped' | 'already-merged'
  * Finds the STATUS.md line containing `**${sprintId}**` and `status: awaiting-merge`,
  * and rewrites just that line's trailing status to `status: merged (${sha})`.
- * Throws if no matching line is found.
+ * Throws if the sprint has no entry at all.
+ *
+ * IDEMPOTENCE: an entry already reading `status: merged` means an earlier run got
+ * this far and something AFTER it failed — the remote delete, most often, because
+ * it is the only step that touches the network. Re-running is then the operator's
+ * only way to finish the job, so this must not throw on the second attempt.
+ *
+ * Observed 2026-08-08 finishing v0.3-s3: the run flipped STATUS.md, deleted the
+ * local branch, then failed the remote delete and exited 1. Before this change a
+ * re-run died here with "no awaiting-merge entry found" — refusing at the one step
+ * that had already succeeded, rather than retrying the one that had not.
+ *
+ * A sprint with NO entry is still an error: that is a wrong sprint id, and
+ * silently doing nothing about it is how a typo looks like success.
  */
 function markMerged(cwd, sprintId, sha) {
   const statusPath = path.join(cwd, 'docs/STATUS.md');
@@ -56,12 +127,16 @@ function markMerged(cwd, sprintId, sha) {
     (l) => l.includes(`**${sprintId}**`) && l.includes('status: awaiting-merge')
   );
   if (idx === -1) {
+    if (lines.some((l) => l.includes(`**${sprintId}**`) && l.includes('status: merged'))) {
+      return 'already-merged';
+    }
     throw new Error(`No awaiting-merge entry found for ${sprintId} in docs/STATUS.md.`);
   }
 
   const sanitizedSha = sha.replace(/[\r\n]/g, ' ');
   lines[idx] = lines[idx].replace('status: awaiting-merge', `status: merged (${sanitizedSha})`);
   fs.writeFileSync(statusPath, lines.join('\n'));
+  return 'flipped';
 }
 
 /**
@@ -159,13 +234,78 @@ function deleteBranch(cwd, branchName, { runner = run } = {}) {
   // origin" indistinguishable from "there is no origin" and let main() report
   // a remote delete that never happened. Observed live 2026-08-06:
   // sprint/v0.2-s7 survived on GitHub after a run that exited 0.
+  return remoteDelete(cwd, branchName, { runner });
+}
+
+/**
+ * remoteDelete(cwd, branchName, { runner = run } = {})
+ * -> { remote: 'deleted' | 'absent' } | gh-fallback result
+ *
+ * The remote half of deleteBranch, factored out so the resume path in main() —
+ * which has no local branch left to delete — runs the identical logic rather
+ * than a second copy of it that could drift.
+ *
+ * Assumes the caller has already established that an origin exists.
+ */
+function remoteDelete(cwd, branchName, { runner = run } = {}) {
   try {
     const listed = runner('git', ['ls-remote', '--heads', 'origin', branchName], { cwd });
     if (listed.length === 0) return { remote: 'absent' };
     runner('git', ['push', 'origin', '--delete', branchName], { cwd });
     return { remote: 'deleted' };
   } catch (err) {
-    return { remote: 'failed', error: err.message };
+    return deleteRemoteViaGh(cwd, branchName, err, { runner });
+  }
+}
+
+/**
+ * deleteRemoteOnly(cwd, branchName, { runner = run } = {})
+ * The resume path's entry point: no local branch to remove, so this is the
+ * origin check plus the remote delete and nothing else.
+ */
+function deleteRemoteOnly(cwd, branchName, { runner = run } = {}) {
+  if (originUrl(cwd, { runner }) === null) return { remote: 'no-origin' };
+  return remoteDelete(cwd, branchName, { runner });
+}
+
+/**
+ * deleteRemoteViaGh(cwd, branchName, gitError, { runner = run } = {})
+ * -> { remote: 'deleted', via: 'gh' } | { remote: 'failed', error, fallbackError }
+ *
+ * WHY A FALLBACK EXISTS AT ALL: `git push` authenticates through git's
+ * credential/askpass path. On a Git-for-Windows host that path spawns an MSYS
+ * shell, which dies with `add_item ("\??\C:\Program Files\Git", "/", ...) failed,
+ * errno 1` (see docs/2026-08-04-shell-strategy.md), and git then falls back to an
+ * askpass helper that cannot prompt because run() attaches no stdin. The push
+ * therefore cannot authenticate even though the operator IS authenticated to
+ * GitHub — `gh auth token` works, and the same delete succeeds immediately
+ * through an explicit token header.
+ *
+ * This is not transient and retrying does not help. Observed on every attempt
+ * finishing v0.3-s3 on 2026-08-08; it is the only git operation in the whole
+ * toolchain that writes to a remote, which is why it is the only place this bites.
+ *
+ * `gh` carries its own token and never touches git's credential path, so it
+ * succeeds where the push cannot. It is already a hard dependency of
+ * gh-hygiene.js and /profile-issue, so this adds no new tooling and does not
+ * touch #zero-dependencies — that rule governs npm packages, not CLIs the plugin
+ * already requires.
+ *
+ * `via` is set ONLY here. The git path's return shape is deliberately unchanged,
+ * so a caller that compares against `{ remote: 'deleted' }` keeps working, while
+ * one that wants to know the fallback fired can read it — and an operator seeing
+ * it learns their git credential path is broken, which is worth knowing.
+ */
+function deleteRemoteViaGh(cwd, branchName, gitError, { runner = run } = {}) {
+  try {
+    // gh substitutes {owner}/{repo} from the repository in cwd. A branch name
+    // containing slashes needs no encoding: it is a path segment of the ref.
+    runner('gh', ['api', '-X', 'DELETE', `repos/{owner}/{repo}/git/refs/heads/${branchName}`], { cwd });
+    return { remote: 'deleted', via: 'gh' };
+  } catch (fallbackErr) {
+    // Both errors are reported. The git one names what the operator tried to do;
+    // the gh one is what they should read to find out why neither route works.
+    return { remote: 'failed', error: gitError.message, fallbackError: fallbackErr.message };
   }
 }
 
@@ -277,8 +417,13 @@ function checkMilestone(cwd, issueNumbers, { runner = run } = {}) {
  * and an injectable `runner`, so it can be invoked directly from tests against
  * a fixture repo with a stubbed runner.
  *
+ * RESUME: if there is no local sprint branch but origin still has one, this is
+ * the state a partial finish leaves behind — the local delete succeeded and the
+ * remote delete did not. main() then finishes the remote side only, rather than
+ * refusing. markMerged is idempotent for the same reason.
+ *
  * Steps:
- * 1. Validate args (sprint-id, sha required)
+ * 1. Validate args (sprint-id, sha required; --trunk <name> defaults to main)
  * 2. Call removeWorktreeForBranch(cwd, `sprint/${sprintId}`) — retire the worktree
  * 3. Call markMerged(cwd, sprintId, sha) — update docs/STATUS.md
  * 4. Call deleteBranch(cwd, branchName) — delete the branch, and report the remote
@@ -303,10 +448,28 @@ function checkMilestone(cwd, issueNumbers, { runner = run } = {}) {
  * with non-zero status.
  */
 function main(argv = process.argv.slice(2), { runner = run } = {}) {
+  const usage = 'Usage: node finish-sprint.js [--force] [--trunk <name>] <sprint-id> <sha> [issue-numbers...]';
   const force = argv.includes('--force');
-  const [sprintId, sha, ...issueArgs] = argv.filter((a) => a !== '--force');
+
+  // --trunk <name>: the branch docs/STATUS.md is expected to be edited on.
+  // Parsed the same way as new-sprint.js:214-226, including the default, so the
+  // two scripts do not disagree about what a trunk is.
+  let trunk = 'main';
+  const trunkIdx = argv.indexOf('--trunk');
+  if (trunkIdx !== -1) {
+    trunk = argv[trunkIdx + 1];
+    if (!trunk) {
+      console.error(usage);
+      process.exit(1);
+    }
+  }
+  const trunkValueIdx = trunkIdx === -1 ? -1 : trunkIdx + 1;
+
+  const [sprintId, sha, ...issueArgs] = argv.filter(
+    (a, i) => a !== '--force' && a !== '--trunk' && i !== trunkValueIdx,
+  );
   if (!sprintId || !sha) {
-    console.error('Usage: node finish-sprint.js [--force] <sprint-id> <sha> [issue-numbers...]');
+    console.error(usage);
     process.exit(1);
   }
   const cwd = process.cwd();
@@ -321,10 +484,32 @@ function main(argv = process.argv.slice(2), { runner = run } = {}) {
       console.error(`Cannot finish ${sprintId}: several branches could be it —`);
       for (const candidate of resolved.candidates) console.error(`    ${candidate}`);
       console.error('Delete the ones that are not this sprint, or finish them first.');
-    } else {
-      console.error(`Cannot finish ${sprintId}: no branch named sprint/${sprintId} or sprint/${sprintId}-<slug>.`);
-      console.error('Nothing was changed. Check the sprint id against `git branch --list "sprint/*"`.');
+      process.exitCode = 1;
+      return;
     }
+
+    // RESUME PATH. No local branch, but the remote one may still be there —
+    // which is exactly the state a partial finish leaves behind, because the
+    // local delete succeeds and the remote delete is the step that fails. Before
+    // this, a re-run refused here and the operator's only recourse was the
+    // `git push` that had already failed. See resolveRemoteSprintBranch.
+    const remote = resolveRemoteSprintBranch(cwd, sprintId, { runner });
+    if (remote.branch) {
+      console.log(`Local branch for ${sprintId} is already gone; finishing the remote side only.`);
+      finishStatus(cwd, sprintId, sha, trunk, { runner });
+      reportRemoteDelete(deleteRemoteOnly(cwd, remote.branch, { runner }), remote.branch);
+      reportMilestones(cwd, issueArgs, { runner });
+      return;
+    }
+
+    console.error(`Cannot finish ${sprintId}: no branch named sprint/${sprintId} or sprint/${sprintId}-<slug>.`);
+    if (remote.reason === 'unreachable') {
+      console.error(`Could not check origin either: ${remote.error}`);
+    } else if (remote.reason === 'ambiguous') {
+      console.error('Several branches on origin could be it —');
+      for (const candidate of remote.candidates) console.error(`    ${candidate}`);
+    }
+    console.error('Nothing was changed. Check the sprint id against `git branch --list "sprint/*"`.');
     process.exitCode = 1;
     return;
   }
@@ -347,8 +532,7 @@ function main(argv = process.argv.slice(2), { runner = run } = {}) {
     console.warn(`${branchName} is checked out in the main worktree (${worktree.path}) — switch away before deleting it.`);
   }
 
-  markMerged(cwd, sprintId, sha);
-  console.log(`Marked ${sprintId} as merged (${sha}) in docs/STATUS.md.`);
+  finishStatus(cwd, sprintId, sha, trunk, { runner });
 
   // The local delete and the remote outcome are separately true, so they are
   // reported separately. The old single line — "(local + remote if present)" —
@@ -356,28 +540,96 @@ function main(argv = process.argv.slice(2), { runner = run } = {}) {
   // had been skipped.
   const deleted = deleteBranch(cwd, branchName, { runner });
   console.log(`Deleted local branch ${branchName}.`);
-  if (deleted.remote === 'deleted') {
-    console.log(`Deleted ${branchName} on origin.`);
-  } else if (deleted.remote === 'no-origin') {
-    console.log('No origin configured — nothing to delete on a remote.');
-  } else if (deleted.remote === 'failed') {
-    console.error(`Could not delete ${branchName} on origin: ${deleted.error}`);
-    console.error('The REMOTE branch still exists. Finish by hand:');
-    console.error(`    git push origin --delete ${branchName}`);
-    // Set the code rather than returning: the milestone check below is advisory
-    // and still worth running, and process.exitCode survives to the end of main.
-    process.exitCode = 1; // a branch left on the remote is not a successful finish
+  reportRemoteDelete(deleted, branchName);
+
+  reportMilestones(cwd, issueArgs, { runner });
+}
+
+/**
+ * finishStatus(cwd, sprintId, sha, trunk, { runner = run } = {})
+ * Flips the STATUS.md entry and says which branch received the edit when that
+ * is not the trunk.
+ *
+ * WHY THE BRANCH WARNING: docs/STATUS.md is machine-owned, and the whole point
+ * of the state model is that its history cannot drift. This script edits it in
+ * the current working tree without ever having asserted which branch that tree
+ * is on — and it deletes the one branch you might plausibly have been on, so
+ * "obviously you are on the trunk" is not a safe assumption.
+ *
+ * Observed 2026-08-08: finishing v0.3-s3 while a follow-up branch was checked
+ * out wrote the flip into that branch. It had to be committed there and carried
+ * to the trunk through a second PR — which is precisely the drift STATUS.md
+ * exists to prevent.
+ *
+ * A warning rather than a refusal: this script is advisory everywhere except
+ * the dirty-worktree guard, and refusing would block finishing from a worktree,
+ * which is a legitimate workflow. The operator is told exactly what happened
+ * and where, which is what they need to put it right.
+ */
+function finishStatus(cwd, sprintId, sha, trunk, { runner = run } = {}) {
+  const branch = currentBranch(cwd, { runner });
+  // null is "I could not tell", not "wrong branch" — warning on it would assert
+  // something never learned, and it would fire on every stubbed runner in the
+  // suite, making the test output noisy for no signal.
+  if (branch !== null && branch !== trunk) {
+    const where = branch === 'HEAD' ? 'a detached HEAD' : branch;
+    console.warn(`Warning: docs/STATUS.md is being edited on ${where}, not ${trunk}.`);
+    console.warn('  STATUS.md is machine-owned and the edit must reach the trunk. Commit it where it');
+    console.warn(`  landed and get it there, or re-run from ${trunk}. Pass --trunk <name> if this`);
+    console.warn(`  repository's trunk is not "${trunk}".`);
   }
 
+  if (markMerged(cwd, sprintId, sha) === 'already-merged') {
+    console.log(`${sprintId} was already marked merged in docs/STATUS.md — left as it was.`);
+  } else {
+    console.log(`Marked ${sprintId} as merged (${sha}) in docs/STATUS.md.`);
+  }
+}
+
+/**
+ * reportRemoteDelete(result, branchName)
+ * Prints the remote outcome and sets exitCode when a branch is left behind.
+ * A remote branch left behind sets exitCode 1: it is debris that no gate caught
+ * before v0.2-s8, so a silent success is how it survives.
+ */
+function reportRemoteDelete(result, branchName) {
+  if (result.remote === 'deleted') {
+    // Naming the fallback matters: it tells the operator their git credential
+    // path is broken, which is a fact about their machine they will meet again.
+    const via = result.via === 'gh' ? ' (via gh — git push could not authenticate)' : '';
+    console.log(`Deleted ${branchName} on origin${via}.`);
+  } else if (result.remote === 'no-origin') {
+    console.log('No origin configured — nothing to delete on a remote.');
+  } else if (result.remote === 'failed') {
+    console.error(`Could not delete ${branchName} on origin: ${result.error}`);
+    if (result.fallbackError) {
+      console.error(`The gh fallback failed too: ${result.fallbackError}`);
+    }
+    console.error('The REMOTE branch still exists. Finish by hand:');
+    console.error(`    git push origin --delete ${branchName}`);
+    console.error('  …or, if git cannot authenticate on this host:');
+    console.error(`    gh api -X DELETE repos/{owner}/{repo}/git/refs/heads/${branchName}`);
+    console.error(`Re-running finish-sprint.js ${branchName.replace(/^sprint\//, '')} <sha> will also retry this step.`);
+    // Set the code rather than returning: the milestone check is advisory and
+    // still worth running, and process.exitCode survives to the end of main.
+    process.exitCode = 1; // a branch left on the remote is not a successful finish
+  }
+}
+
+/**
+ * reportMilestones(cwd, issueArgs, { runner = run } = {})
+ * Advisory: a failure to fetch milestone data never fails the run, because the
+ * core work is already done by the time it runs.
+ */
+function reportMilestones(cwd, issueArgs, { runner = run } = {}) {
   const issueNumbers = issueArgs.map(Number).filter((n) => !Number.isNaN(n));
-  if (issueNumbers.length > 0) {
-    const results = checkMilestone(cwd, issueNumbers, { runner });
-    for (const result of results) {
-      if (result.error) {
-        console.warn(`Warning: Could not check milestone for issue #${result.issue}: ${result.error}`);
-      } else if (!result.milestone) {
-        console.warn(`Issue #${result.issue} has no milestone assigned — consider assigning one.`);
-      }
+  if (issueNumbers.length === 0) return;
+
+  for (const result of checkMilestone(cwd, issueNumbers, { runner })) {
+    if (result.error) {
+      console.warn(`Warning: Could not check milestone for issue #${result.issue}: ${result.error}`);
+    } else if (!result.milestone) {
+      console.warn(`Issue #${result.issue} has no milestone assigned — consider assigning one.`);
     }
   }
 }
@@ -385,7 +637,10 @@ function main(argv = process.argv.slice(2), { runner = run } = {}) {
 module.exports = {
   markMerged,
   deleteBranch,
+  deleteRemoteOnly,
   resolveSprintBranch,
+  resolveRemoteSprintBranch,
+  currentBranch,
   parseWorktrees,
   removeWorktreeForBranch,
   checkMilestone,
