@@ -596,3 +596,70 @@ test('runCli restores an in-flight mutation when the run throws', (t) => {
     'a throw must revert before it reports, or the tree is left mutated',
   );
 });
+
+// Finding 4 of docs/2026-08-08-sprint-loop-findings.md. The guard's own reasons
+// — telling a stranded mutation from the author's edits, and giving
+// verifyRestored a known-good state — do not apply to a run that writes nothing.
+test('runCli validates anchors on a dirty tree under --dry-run', (t) => {
+  const dir = cheapWorkdir(t);
+  const s = sinks();
+  const manifestPath = writeManifest(dir, [
+    { id: 'A', file: 'src.js', find: 'return "hi " + name;', replace: 'return name;', expectRed: 'boom' },
+  ]);
+
+  const code = runCli([manifestPath, '--dry-run'], {
+    cwd: dir,
+    log: s.log,
+    err: s.err,
+    // A manifest is an untracked file, so the tree is dirty by definition at the
+    // moment you want to check its anchors. That is the order the guard made
+    // impossible.
+    runner: () => ' M src.js\n?? manifest.json',
+    capture: () => { throw new Error('no test command may run under --dry-run'); },
+  });
+
+  assert.equal(code, 0);
+  assert.equal(s.errs.length, 0, `no refusal expected; got: ${s.errs.join(' | ')}`);
+  assert.match(s.out.join('\n'), /ANCHOR-OK/);
+});
+
+test('runCli still refuses a dirty tree for a real run', (t) => {
+  const dir = cheapWorkdir(t);
+  const s = sinks();
+  const manifestPath = writeManifest(dir, [
+    { id: 'A', file: 'src.js', find: 'return "hi " + name;', replace: 'return name;', expectRed: 'boom' },
+  ]);
+
+  // Without --dry-run the exemption must not apply: a real run writes, tests and
+  // reverts, and that is exactly what the guard protects.
+  const code = runCli([manifestPath], {
+    cwd: dir,
+    log: s.log,
+    err: s.err,
+    runner: () => ' M src.js',
+  });
+
+  assert.equal(code, 1);
+  assert.match(s.errs[0], /Refusing to run with uncommitted changes/);
+});
+
+test('--allow-dirty and --dry-run remain independent switches', (t) => {
+  const dir = cheapWorkdir(t);
+  const s = sinks();
+  const manifestPath = writeManifest(dir, [
+    { id: 'A', file: 'src.js', find: 'return "hi " + name;', replace: 'return name;', expectRed: 'boom' },
+  ]);
+
+  // --allow-dirty alone still reaches a real run on a dirty tree; the dry-run
+  // exemption must not have swallowed it.
+  const code = runCli([manifestPath, '--allow-dirty'], {
+    cwd: dir,
+    log: s.log,
+    err: s.err,
+    runner: () => ' M src.js',
+    capture: captureQueue([{ status: 1, output: 'boom' }]),
+  });
+
+  assert.notEqual(s.out.join('\n').includes('ANCHOR-OK'), true, '--allow-dirty alone is not a dry run');
+  assert.equal(typeof code, 'number');
+});

@@ -122,6 +122,11 @@ node scripts/asdlc/mutate.js manifest.json --json      # same, structured
 
 **Always `--dry-run` first.** Anchors are authored blind against files you are not looking
 at, so they fail in batches; checking them all costs one second and saves a full cycle.
+`--dry-run` writes nothing, runs no test and reverts nothing, so it is **exempt from the
+clean-tree guard** — check a manifest's anchors while it is still an untracked file, which
+is the moment you actually want to. The real run still refuses a dirty tree, because it
+must be able to tell a stranded mutation from your own edits; pass `--allow-dirty` if you
+mean it.
 
 Verdicts: `RED-AS-PREDICTED` · `RED-WRONG-REASON` (discard) · `GREEN` (decide: HOLLOW or
 INERT) · `ANCHOR-MISS` · `AMBIGUOUS-ANCHOR` · `NO-OP` · `EXPECT-RED-INERT` · `BASELINE-RED` ·
