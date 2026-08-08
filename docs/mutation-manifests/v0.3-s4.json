@@ -35,7 +35,7 @@
       "id": "NOBRANCHWARN",
       "why": "Finding 3. Silencing the comparison restores the assumption that the operator is on the trunk - the assumption that wrote v0.3-s3's STATUS.md flip onto an unrelated follow-up branch. The warning is the whole deliverable of that finding, so a test that passes without it would be testing nothing.",
       "file": "scripts/asdlc/finish-sprint.js",
-      "find": "  if (branch !== trunk) {",
+      "find": "  if (branch !== null && branch !== trunk) {",
       "replace": "  if (false) {",
       "testArgs": ["scripts/asdlc/test/finish-sprint.test.js"],
       "label": "main warns which branch received the STATUS.md edit when it is not the trunk",
