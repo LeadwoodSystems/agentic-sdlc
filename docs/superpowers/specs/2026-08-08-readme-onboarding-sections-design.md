@@ -102,7 +102,7 @@ WITH ASDLC
     ↓
   Handoff       docs/handoffs/<sprint>.md
     ↓
-  Checkpoint    STATUS.md entry, staged commit, human approves
+  Checkpoint    STATUS.md entry, staged changes, human approves
     ↓
   Next session resumes from the handoff
 ```
@@ -200,7 +200,7 @@ below is cited, and the citations are the deliverable as much as the prose is.
 | `/sprint auth-refresh` | required | `CLAUDE.md` + the latest handoff | branch `sprint/vX.Y-sN` + a seeded plan file | `sprint.md:12-20` |
 | build test-first | required | the plan | code + tests | `sprint.md:21-22` |
 | `/handoff` | required | what actually happened | `docs/handoffs/<sprint-id>-<slug>.md` + the drafted STATUS line | `handoff.md:15-17` |
-| `/checkpoint` | required | `CLAUDE.md` § Run / verify | targeted test result, `docs/STATUS.md` entry, `CLAUDE.md` pointer span, staged commit — then **stops for human approval** | `checkpoint.md:12-20`, `:35-44`, `:45-47` |
+| `/checkpoint` | required | `CLAUDE.md` § Run / verify | targeted test result, `docs/STATUS.md` entry, `CLAUDE.md` pointer span, staged changes — then **stops for human approval** | `checkpoint.md:12-20`, `:35-44`, `:45-47` |
 | `finish-sprint.js` → `/clear` | after the PR merges | the merged sprint | worktree retired, branch cleaned | `checkpoint.md:51-53` |
 
 `/asdlc-hygiene` is named as available at any time, outside the sequence
@@ -292,3 +292,15 @@ knew living only in gitignored scratch files. That incident is recorded in
 - The `.length`-as-columns limit in the new test, if any non-BMP or wide character is ever
   introduced to a ` ```text ` block.
 - #22 has not run, so the install text this sprint relocated is unaudited.
+- **Correction (human ruling, mid-sprint, 2026-08-08):** §3's diagram (originally rendered
+  at what was line 105) and §5's walkthrough table (originally line 203) both credited
+  `/checkpoint` with producing "a staged commit." `/checkpoint` stages changes and stops; it
+  does not commit — `commands/checkpoint.md:45-47` is the ground truth: "Do **not** commit
+  or push automatically... present the proposed commit and **STOP for the user's
+  approval**." The plan (`docs/superpowers/plans/v0.3-s3-readme-onboarding-sections.md`)
+  carried the same wording into its Task 2 Step 1 draft and Task 4 Step 1 table, which is
+  how it reached `README.md`. The human ruled on it mid-sprint when a blind re-walk caught
+  the README instance (see `docs/handoffs/v0.3-s3-readme-onboarding-sections.md`, Incident
+  2): "fix it - the cell becomes staged changes, not a staged commit." Both instances in
+  this spec are now corrected to "staged changes" so a future session re-deriving the
+  diagram or table from this spec does not reintroduce the defect.
