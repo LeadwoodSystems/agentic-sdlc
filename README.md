@@ -91,6 +91,45 @@ Or point Claude Code at this repo directly once it's public:
 /plugin install agentic-sdlc@leadwood-local
 ```
 
+### 2. Run your first sprint
+
+```
+/bootstrap-asdlc            once per repo, not once per sprint
+
+/verify-issue 42            selective — see below
+/profile-issue 42           recommended before planning
+/sprint auth-refresh        required — starts the sprint
+
+  ... the agent builds, test-first ...
+
+/handoff                    required — never skip this one
+/checkpoint                 required — ends by stopping for your approval
+```
+
+What each step leaves behind:
+
+| Step | Required? | What it produces |
+|---|---|---|
+| `/bootstrap-asdlc` | Once per repo | `CLAUDE.md`, `docs/STATUS.md`, the handoff and plan templates, `scripts/asdlc/`, and `.asdlc/` |
+| `/verify-issue 42` | Selective | A corrected issue body on the tracker |
+| `/profile-issue 42` | Recommended | An Execution Profile block on the issue, plus `complexity/`, `risk/` and `execution/` labels |
+| `/sprint auth-refresh` | Required | A `sprint/vX.Y-sN` branch and a seeded plan file under `docs/superpowers/plans/` |
+| The build | Required | Code and tests, written test-first |
+| `/handoff` | Required | `docs/handoffs/<sprint>.md`, plus the one-line `docs/STATUS.md` entry it drafts |
+| `/checkpoint` | Required | The test result, the `docs/STATUS.md` entry, the rewritten `CLAUDE.md` pointer span, and a staged commit — then it **stops for your approval** |
+| `finish-sprint.js` | After the PR merges | Retires the worktree, flips the STATUS entry to merged, deletes the branch |
+
+**`/verify-issue` is deliberately not routine.** It is a multi-pass research effort, and
+the command says so itself: reserve it for issues that are architectural, speculative, or
+old enough that the codebase has moved under them. Running it on every issue costs far more
+than it returns.
+
+**`/checkpoint` never commits for you.** It stages, reports, and stops. The pause is where
+you decide whether the sprint is actually finished — and after the PR merges, `/clear`
+before starting the next one.
+
+`/asdlc-hygiene` sits outside this sequence and can be run any time.
+
 ## Commands
 
 | Command | What it does |
