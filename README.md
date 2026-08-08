@@ -99,7 +99,7 @@ Or point Claude Code at this repo directly once it's public:
 
 /verify-issue 42               selective — see below
 /profile-issue 42              recommended before planning
-/sprint v0.1-s1 auth-refresh    required — starts the sprint
+/sprint v0.1-s1 auth-refresh   required — starts the sprint
 
   ... the agent builds, test-first ...
 
