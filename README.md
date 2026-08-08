@@ -44,13 +44,14 @@ WITH ASDLC
     ↓
   Handoff       docs/handoffs/<sprint>.md
     ↓
-  Checkpoint    STATUS.md entry, staged commit, human approves
+  Checkpoint    STATUS.md entry, staged changes, human approves
     ↓
   Next session resumes from the handoff
 ```
 
-The left column is the step; the right column is what it leaves on disk. Nothing in the
-loop depends on a session remembering anything.
+In the WITH block, the left column is the step; the right column is what it leaves
+behind — a file path, a tracker object, or an action, depending on the step. Nothing in
+the loop depends on a session remembering anything.
 
 ## The core mental model
 
@@ -94,16 +95,16 @@ Or point Claude Code at this repo directly once it's public:
 ### 2. Run your first sprint
 
 ```
-/bootstrap-asdlc            once per repo, not once per sprint
+/bootstrap-asdlc               once per repo, not once per sprint
 
-/verify-issue 42            selective — see below
-/profile-issue 42           recommended before planning
-/sprint auth-refresh        required — starts the sprint
+/verify-issue 42               selective — see below
+/profile-issue 42              recommended before planning
+/sprint v0.1-s1 auth-refresh    required — starts the sprint
 
   ... the agent builds, test-first ...
 
-/handoff                    required — never skip this one
-/checkpoint                 required — ends by stopping for your approval
+/handoff                       required — never skip this one
+/checkpoint                    required — ends by stopping for your approval
 ```
 
 What each step leaves behind:
@@ -113,16 +114,17 @@ What each step leaves behind:
 | `/bootstrap-asdlc` | Once per repo | `CLAUDE.md`, `docs/STATUS.md`, the handoff and plan templates, `scripts/asdlc/`, and `.asdlc/` |
 | `/verify-issue 42` | Selective | A corrected issue body on the tracker |
 | `/profile-issue 42` | Recommended | An Execution Profile block on the issue, plus `complexity/`, `risk/` and `execution/` labels |
-| `/sprint auth-refresh` | Required | A `sprint/vX.Y-sN` branch and a seeded plan file under `docs/superpowers/plans/` |
+| `/sprint v0.1-s1 auth-refresh` | Required | A `sprint/vX.Y-sN` branch and a seeded plan file under `docs/superpowers/plans/` |
 | The build | Required | Code and tests, written test-first |
 | `/handoff` | Required | `docs/handoffs/<sprint>.md`, plus the one-line `docs/STATUS.md` entry it drafts |
 | `/checkpoint` | Required | The test result, the `docs/STATUS.md` entry, the rewritten `CLAUDE.md` pointer span, and the sprint's changes staged — then it **stops for your approval** |
 | `finish-sprint.js` | After the PR merges | Retires the worktree, flips the STATUS entry to merged, deletes the branch |
 
-**`/verify-issue` is deliberately not routine.** It is a multi-pass research effort, and
-the command says so itself: reserve it for issues that are architectural, speculative, or
-old enough that the codebase has moved under them. Running it on every issue costs far more
-than it returns.
+**`/verify-issue` is deliberately not routine.** It is a multi-pass research effort
+(`commands/verify-issue.md`: "reserve it for issues about to become real work"), and that
+covers issues that are architectural or speculative, older relative to the project's pace,
+explicitly flagged by the user, or about to be picked up for implementation. Running it on
+every issue costs far more than it returns.
 
 **`/checkpoint` never commits for you.** It stages, reports, and stops. The pause is where
 you decide whether the sprint is actually finished — and after the PR merges, `/clear`
