@@ -160,8 +160,8 @@ skills/agentic-sdlc/
 
 ## Philosophy and design decisions
 
-A spec-driven, checkpoint-gated build loop for driving large, multi-session AI software
-builds without losing context, handoffs, or history.
+Agentic SDLC is a spec-driven, checkpoint-gated build loop for driving large,
+multi-session AI software builds without losing context, handoffs, or history.
 
 **Core principle:** keep persistent context thin, push history to disk, and make every
 sprint resume-ready from a written handoff. Proven across 100+ sprints on one product.

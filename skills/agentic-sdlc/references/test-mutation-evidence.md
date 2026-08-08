@@ -60,7 +60,10 @@ must answer it in writing.
    **Anchor on text that appears only on failure.** An `expectRed` that shows up in a green
    run cannot tell red from green: `node --test` prints a passing test's *title*, so a
    title-shaped anchor is present in every run and the check silently becomes "did the exit
-   code change". `mutate.js` now runs the command unmutated first and reports
+   code change". The anchor need not *be* a title to collide — being a **substring** of one
+   is enough, which is how v0.3-s2's `no-execution-profile` went inert against a test titled
+   `flags no-labels, no-milestone and no-execution-profile issues` in the same file.
+   `mutate.js` now runs the command unmutated first and reports
    `EXPECT-RED-INERT` rather than letting that pass — but the fix is to anchor on an
    assertion message.
 3. **Verify the revert after *every* mutation, not at the end.** One un-reverted mutation

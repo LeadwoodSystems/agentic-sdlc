@@ -62,20 +62,28 @@ supports. To be corrected on the tracker at handoff.
 
 ## Design
 
-### 1. `NON_EXECUTABLE_KIND_PREFIX`
+### 1. `NON_EXECUTABLE_KINDS`
 
 ```js
-const NON_EXECUTABLE_KIND_PREFIX = 'kind/';
+const NON_EXECUTABLE_KINDS = ['kind/epic', 'kind/decision'];
 ```
 
-An issue carrying any label starting `kind/` is not executed directly, so
-`no-execution-profile` does not apply to it. Prefix-matched for the same reason
-`PROFILE_LABEL_PREFIXES` is (`:178-184`): adding `kind/decision` when #33 unblocks the other
-half of this issue is a tracker action, not a code change.
+An issue carrying one of these labels is not executed directly, so `no-execution-profile`
+does not apply to it. **An explicit allowlist, matched by exact value** — deliberately not
+`startsWith('kind/')`, and deliberately not by analogy to `PROFILE_LABEL_PREFIXES`
+(`:178-184`). That analogy does not hold: `complexity/` names one axis whose *buckets* may
+grow, so prefix-matching avoids coupling to the bucket list. `kind/` names only "this issue
+has a type", which is not the predicate being tested. The predicate is "is never executed
+directly", and that is not derivable from the string.
 
-Singular constant, not a set of permitted values. Enumerating the legal kinds here would
-recreate the exact-value coupling the prefix exists to avoid, and the audit has no reason to
-care *which* non-executable kind an issue is — only that it is one.
+`kind/decision` is listed from the outset, ahead of #33 landing, so that the other half of
+#37 remains a tracker action rather than a code change — the property the prefix was
+originally reached for, obtained without the prefix's blast radius. Adding a genuinely
+non-executable kind later is a one-line edit here.
+
+> **This section was revised after the whole-branch review.** It originally specified
+> `NON_EXECUTABLE_KIND_PREFIX = 'kind/'` and argued for the prefix explicitly. That was
+> wrong, for the reason recorded under *Rejected alternatives* below.
 
 ### 2. Epics carry a different completeness check
 
@@ -125,13 +133,14 @@ findings sentence, so the edit is free-form.
 
 ## Scope
 
-**In:** `NON_EXECUTABLE_KIND_PREFIX`, the `parent` field, the sub-issue derivation and the
+**In:** `NON_EXECUTABLE_KINDS`, the `parent` field, the sub-issue derivation and the
 `epic-without-open-sub-issues` reason in `findUntriagedIssues`; its tests; the
 `asdlc-hygiene.md` prose; the six-issue tracker relabel.
 
 **Out:**
 
-- **Decision tickets.** Blocked by #33. The prefix already accommodates them.
+- **Decision tickets.** Blocked by #33. `kind/decision` is already on the allowlist, so the
+  tracker action is all that remains.
 - **`PROFILE_LABEL_PREFIXES` semantics** for ordinary implementation issues — unchanged, and
   #37's Non-Goals forbid weakening them.
 - **Deleting the `epic` label definition.** Follow-up.
@@ -176,6 +185,19 @@ tests that never touch the filesystem, and this sprint does not add a fourth.
   `${actual} !== ${expected}` message order — v0.3-s1 shipped that prediction backwards.
 
 ## Rejected alternatives
+
+**An open `kind/` prefix — exempt any label starting `kind/`.** This is what the design
+originally specified and what shipped in `f3f2fad`; it was narrowed to the allowlist above
+after the whole-branch review, and it is recorded here because the gap was in the *written
+record* as much as in the code — every alternative below was considered, this one was not.
+Rejected because `gh-hygiene.js` ships to consumers and `/bootstrap-asdlc` scaffolds it into
+**existing** repos. `kind/bug` / `kind/feature` / `kind/cleanup` (the Kubernetes convention)
+is one of the most widespread label taxonomies on GitHub, and a consumer carrying it would
+have had every bug and every feature silently removed from the profiling worklist — a
+worklist that reads as complete and is not, which is the exact failure class v0.3-s1 existed
+to eliminate. The prefix's own argument (that adding a kind should not need a code change)
+buys a one-line saving in *this* repo and costs a silent, unrecoverable under-report in
+someone else's. The trade is not close.
 
 **Keep the existing `epic` label, exact-matched.** No tracker churn. Rejected: contradicts
 #37's third acceptance criterion, and every future kind becomes a code edit.
@@ -309,8 +331,9 @@ natural place to decide whether README structure deserves enforcement.
 
 1. **Correct #37's Scope premise** — an exempted epic is still subject to `no-labels` and
    `no-milestone`; only `no-execution-profile` is skipped.
-2. **Decision tickets remain open on #37**, blocked by #33. The prefix needs no code change
-   when it unblocks; the tracker action is `kind/decision` on #33's output tickets.
+2. **Decision tickets remain open on #37**, blocked by #33. No code change is needed when it
+   unblocks — `kind/decision` is already on `NON_EXECUTABLE_KINDS`; the tracker action is
+   applying that label to #33's output tickets.
 3. **The `epic` label definition is left in place, unused** — delete when convenient.
 4. **Three README sections are absent by design** (#18, #19, #21). Whoever lands those must
    insert at the epic's slot, not append.
