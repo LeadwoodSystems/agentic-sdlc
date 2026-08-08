@@ -5,7 +5,7 @@
       "id": "SWALLOW",
       "why": "This restores the exact defect of the sprint, in the new shape: an unreachable origin reported as 'the branch is not on the remote'. It is the one-line difference between the fix and the bug, and before this sprint nothing in the suite could tell them apart.",
       "file": "scripts/asdlc/finish-sprint.js",
-      "find": "    return { remote: 'failed', error: err.message };",
+      "find": "    return deleteRemoteViaGh(cwd, branchName, err, { runner });",
       "replace": "    return { remote: 'absent' };",
       "testArgs": ["--test-name-pattern", "deleteBranch", "scripts/asdlc/test/finish-sprint.test.js"],
       "label": "finish-sprint:ls-remote-failure-is-not-absence",
