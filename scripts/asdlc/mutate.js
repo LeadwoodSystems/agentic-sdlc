@@ -279,7 +279,17 @@ function runCli(argv, {
   }
 
   try {
-    if (!args.allowDirty) assertCleanTree(cwd, { runner });
+    // --dry-run is exempt. The guard exists so a stranded mutation can be told
+    // from the author's own edits, and so verifyRestored has a known-good state
+    // to compare a revert against — runOne returns ANCHOR-OK before it writes
+    // anything, runs any test, or reverts, so neither concern applies.
+    //
+    // Requiring it there made the natural authoring order impossible: a manifest
+    // is a new, untracked file, so the tree is dirty by definition at the moment
+    // you want to validate its anchors. v0.3-s3's implementer had to commit a
+    // manifest before it had ever been checked, and disclosed the deviation;
+    // the constraint was real and written down nowhere.
+    if (!args.allowDirty && !args.dryRun) assertCleanTree(cwd, { runner });
     const manifest = parseManifest(fs.readFileSync(args.manifestPath, 'utf8'));
     const results = runMutations(cwd, manifest, {
       only: args.only,
