@@ -1,0 +1,45 @@
+{
+  "testCommand": ["node", "--test"],
+  "mutations": [
+    {
+      "id": "NOGHFALLBACK",
+      "why": "The whole point of finding 1. With the fallback unreachable, a push that cannot authenticate goes straight back to reporting 'failed' - which is the pre-fix behaviour that made finish-sprint.js exit 1 on every run on a Git-for-Windows host. Proves the fallback is what produces the deleted verdict, not some incidental property of the stub runner.",
+      "file": "scripts/asdlc/finish-sprint.js",
+      "find": "    return { remote: 'deleted', via: 'gh' };",
+      "replace": "    throw new Error('fallback disabled');",
+      "testArgs": ["scripts/asdlc/test/finish-sprint.test.js"],
+      "label": "deleteBranch falls back to gh when git push cannot authenticate",
+      "expectRed": "remote: 'deleted', via: 'gh'"
+    },
+    {
+      "id": "NOTIDEMPOTENT",
+      "why": "Finding 2. Restoring the throw is exactly the pre-fix behaviour: a re-run after a partial failure died at the one step that had already succeeded, rather than retrying the one that had not. Isolates the idempotence from the resume path, which is tested separately.",
+      "file": "scripts/asdlc/finish-sprint.js",
+      "find": "      return 'already-merged';",
+      "replace": "      throw new Error('not idempotent');",
+      "testArgs": ["scripts/asdlc/test/finish-sprint.test.js"],
+      "label": "markMerged is idempotent when the entry is already merged",
+      "expectRed": "not idempotent"
+    },
+    {
+      "id": "NORESUME",
+      "why": "The resume path is what makes idempotence useful: without it main() still refuses when the local branch is gone, so the remote can never be cleaned up by re-running. Making the branch unreachable restores the hole v0.3-s3 fell into.",
+      "file": "scripts/asdlc/finish-sprint.js",
+      "find": "    if (remote.branch) {",
+      "replace": "    if (false) {",
+      "testArgs": ["scripts/asdlc/test/finish-sprint.test.js"],
+      "label": "main finishes the remote side when a partial run already deleted the local branch",
+      "expectRed": "expected the remote delete to be retried"
+    },
+    {
+      "id": "NOBRANCHWARN",
+      "why": "Finding 3. Silencing the comparison restores the assumption that the operator is on the trunk - the assumption that wrote v0.3-s3's STATUS.md flip onto an unrelated follow-up branch. The warning is the whole deliverable of that finding, so a test that passes without it would be testing nothing.",
+      "file": "scripts/asdlc/finish-sprint.js",
+      "find": "  if (branch !== null && branch !== trunk) {",
+      "replace": "  if (false) {",
+      "testArgs": ["scripts/asdlc/test/finish-sprint.test.js"],
+      "label": "main warns which branch received the STATUS.md edit when it is not the trunk",
+      "expectRed": "is being edited on"
+    }
+  ]
+}

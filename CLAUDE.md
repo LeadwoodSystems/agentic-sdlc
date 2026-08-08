@@ -38,8 +38,8 @@ Epic 1 (#11) is profiled and ready; Epics 2–6 are not.
 <!-- asdlc:facts:auto -->
 <!-- Measured by `node scripts/asdlc/facts.js` from .asdlc/facts.json. Do not hand-edit: your numbers will be overwritten, and `--check` will fail until they are. -->
 
-- asdlc unit tests: **337**
-- asdlc unit tests passing: **337**
+- asdlc unit tests: **350**
+- asdlc unit tests passing: **350**
 - node: **v24.11.1**
 <!-- /asdlc:facts:auto -->
 
