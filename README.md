@@ -1,23 +1,23 @@
 # Agentic SDLC
 
-A Claude Code plugin: a spec-driven, checkpoint-gated build loop for driving large,
-multi-session AI software builds without losing context, handoffs, or history.
+**AI coding works well *within* a session. What happens when the project lasts 20, 50, or
+100 sessions?**
 
-**Core principle:** keep persistent context thin, push history to disk, and make every
-sprint resume-ready from a written handoff. Proven across 100+ sprints on one product.
-
-This plugin orchestrates the `superpowers` skills (brainstorming, writing-plans,
-test-driven-development, verification-before-completion, requesting-code-review) — it
-does not replace them.
+Agentic SDLC is a Claude Code plugin that keeps a long AI-driven build coherent across all of
+them — by writing down where the work got to, in a form the next session can pick up.
 
 ## The problem
 
-Every AI coding session starts with amnesia — no memory of yesterday's decisions, no
-trace of why a file looks the way it does. Left unmanaged, that either forces every
-session to re-derive context from scratch, or worse, to guess. Agentic SDLC exists to
-answer one question cheaply: *where were we, and what do I do next?*
+Every AI coding session starts with amnesia — no memory of yesterday's decisions, no trace of
+why a file looks the way it does. Left unmanaged, that either forces every session to
+re-derive context from scratch, or worse, to guess. Agentic SDLC exists to answer one question
+cheaply: *where were we, and what do I do next?*
 
-## The two rules
+The answer has two halves. Keep the context a session always reads **thin**, so it stays
+readable; and end every unit of work by writing down what happened, with evidence, so the
+next session starts from a record instead of an archaeology dig.
+
+## The core mental model
 
 1. **Thin persistent context.** Your repo's `CLAUDE.md` holds only durable rules and
    architecture (target under ~200 lines) — never a changelog. Running history lives in
@@ -26,7 +26,7 @@ answer one question cheaply: *where were we, and what do I do next?*
    handoff (after) → commit → **stop for human approval** → `/clear`. One unit of work
    per checkpoint.
 
-## The loop, per sprint
+## The sprint lifecycle
 
 1. **Plan** → `docs/superpowers/plans/` (brainstorm → write the plan).
 2. **Build test-first.**
@@ -39,6 +39,20 @@ answer one question cheaply: *where were we, and what do I do next?*
    resume exactly here.
 6. **Checkpoint** → tests pass, handoff exists, `docs/STATUS.md` updated, commit staged.
    Then stop for approval and `/clear` before the next sprint.
+
+## Installing
+
+```
+/plugin marketplace add /path/to/agentic-sdlc
+/plugin install agentic-sdlc@leadwood-local
+```
+
+Or point Claude Code at this repo directly once it's public:
+
+```
+/plugin marketplace add LeadwoodSystems/agentic-sdlc
+/plugin install agentic-sdlc@leadwood-local
+```
 
 ## Commands
 
@@ -76,65 +90,20 @@ each other.
 means a retired rule must be embalmed in its slot forever so old citations keep resolving;
 with slugs it is simply deleted and a stale citation fails loudly.
 
+Plans and handoffs share one naming scheme: `vMAJOR.MINOR-sN-<slug>.md`. When a milestone
+closes, run `node scripts/asdlc/archive-sprint-docs.js <milestone>` to move each type's files
+into its own `archive/<milestone>/` subdirectory (`docs/handoffs/archive/<milestone>/`,
+`docs/superpowers/plans/archive/<milestone>/`) so the live directories stay small.
+
+## Concurrency model
+
 **One sprint = one worktree = one session.** A branch can be checked out in exactly one
 working tree at a time, so the worktree — not the session — is the safe unit of
 concurrency: two sessions in one directory fight over HEAD, two sessions in two worktrees
 cannot. `new-sprint.js` refuses to start a sprint over a stale worktree, `finish-sprint.js`
 removes the worktree before deleting the branch, and `/asdlc-hygiene` audits for orphans.
 
-Plans and handoffs share one naming scheme: `vMAJOR.MINOR-sN-<slug>.md`. When a milestone
-closes, run `node scripts/asdlc/archive-sprint-docs.js <milestone>` to move each type's files
-into its own `archive/<milestone>/` subdirectory (`docs/handoffs/archive/<milestone>/`,
-`docs/superpowers/plans/archive/<milestone>/`) so the live directories stay small.
-
-## Works for solo devs and small teams — it's just GitHub
-
-No new tooling required. The loop rides directly on primitives you already use:
-
-```
-Issue (the spec)  →  Branch (one working line)  →  Commit (one clean checkpoint)
-      →  PR (where review happens)  →  Main (the reviewed baseline)
-```
-
-Solo? You review your own PR before merging — the pause is the point. Small team?
-That's where a teammate looks.
-
-## Installing
-
-```
-/plugin marketplace add /path/to/agentic-sdlc
-/plugin install agentic-sdlc@leadwood-local
-```
-
-Or point Claude Code at this repo directly once it's public:
-
-```
-/plugin marketplace add LeadwoodSystems/agentic-sdlc
-/plugin install agentic-sdlc@leadwood-local
-```
-
-## Common mistakes
-
-- Hand-editing `docs/STATUS.md` or CLAUDE.md's current-state line → let
-  `scripts/asdlc/checkpoint-hooks.js` own both; hand-edits are exactly what caused drift
-  in real usage.
-- Skipping the handoff "to save time" → the next session can't resume; this is the one
-  step never to cut.
-- Pushing straight to `main`, or bundling many sprints into one PR.
-- Running two sessions in the same working tree to get parallelism → they fight over
-  HEAD. One worktree per sprint, and retire it when the sprint ends: an orphan worktree
-  survived a week at 1.15 GB holding 14 uncommitted files nobody could see.
-- Typing a test count, timing, or port into `CLAUDE.md` → it's wrong within weeks and
-  still reads as authoritative. Declare it in `.asdlc/facts.json` and let `facts.js`
-  measure it.
-- Letting merged sprint branches or worktrees pile up, or milestones drift from the
-  sprint version scheme → run `/asdlc-hygiene` periodically to catch all three.
-- Hard-blocking hooks for routine actions → prefer non-blocking helper commands; the
-  one exception is `new-sprint.js`'s gate, which *does* hard-block starting a new sprint
-  on top of an uncommitted one — that specific failure mode was observed in practice and
-  is deliberately not advisory.
-
-## Layout
+## Architecture and repository layout
 
 ```
 .asdlc/
@@ -167,6 +136,52 @@ skills/agentic-sdlc/
   SKILL.md               the skill Claude Code loads
   references/            state model + plan/handoff/CLAUDE.md templates
 ```
+
+## Common failure modes
+
+- Hand-editing `docs/STATUS.md` or CLAUDE.md's current-state line → let
+  `scripts/asdlc/checkpoint-hooks.js` own both; hand-edits are exactly what caused drift
+  in real usage.
+- Skipping the handoff "to save time" → the next session can't resume; this is the one
+  step never to cut.
+- Pushing straight to `main`, or bundling many sprints into one PR.
+- Running two sessions in the same working tree to get parallelism → they fight over
+  HEAD. One worktree per sprint, and retire it when the sprint ends: an orphan worktree
+  survived a week at 1.15 GB holding 14 uncommitted files nobody could see.
+- Typing a test count, timing, or port into `CLAUDE.md` → it's wrong within weeks and
+  still reads as authoritative. Declare it in `.asdlc/facts.json` and let `facts.js`
+  measure it.
+- Letting merged sprint branches or worktrees pile up, or milestones drift from the
+  sprint version scheme → run `/asdlc-hygiene` periodically to catch all three.
+- Hard-blocking hooks for routine actions → prefer non-blocking helper commands; the
+  one exception is `new-sprint.js`'s gate, which *does* hard-block starting a new sprint
+  on top of an uncommitted one — that specific failure mode was observed in practice and
+  is deliberately not advisory.
+
+## Philosophy and design decisions
+
+Agentic SDLC is a spec-driven, checkpoint-gated build loop for driving large,
+multi-session AI software builds without losing context, handoffs, or history.
+
+**Core principle:** keep persistent context thin, push history to disk, and make every
+sprint resume-ready from a written handoff. Proven across 100+ sprints on one product.
+
+**Works for solo devs and small teams — it's just GitHub.** No new tooling required. The
+loop rides directly on primitives you already use:
+
+```
+Issue (the spec)  →  Branch (one working line)  →  Commit (one clean checkpoint)
+      →  PR (where review happens)  →  Main (the reviewed baseline)
+```
+
+Solo? You review your own PR before merging — the pause is the point. Small team?
+That's where a teammate looks.
+
+## Credits
+
+This plugin orchestrates the `superpowers` skills (brainstorming, writing-plans,
+test-driven-development, verification-before-completion, requesting-code-review) — it
+does not replace them.
 
 ## License
 

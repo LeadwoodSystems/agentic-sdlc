@@ -30,7 +30,28 @@ on a `gh`-based line, not a bug in the audit.
 
 **Untriaged issues** is fetched with an explicit cap; if the `Untriaged issues` line ends
 in `TRUNCATED: …`, the repo had at least that many open issues and the list is bounded, not
-complete — do not treat it as the whole worklist.
+complete — do not treat it as the whole worklist. Truncation can also *manufacture* a
+finding rather than only omit one: the epic sub-issue map below is derived from that same
+capped page, so an epic whose only open children sit past the cap is reported
+`epic-without-open-sub-issues` when it has children after all.
+
+**Issues labelled `kind/epic` or `kind/decision` are exempt from `no-execution-profile`** —
+an epic or a decision ticket is never executed directly, so no execution class could ever be
+assigned to it and the finding could never be cleared. The exemption is an explicit
+allowlist, not the whole `kind/` prefix: in a repo using the common `kind/bug` /
+`kind/feature` taxonomy, a prefix would quietly empty the worklist of real work. The
+exemption is also scoped to that one reason: an exempt issue is still reported for
+`no-labels` and `no-milestone`. Epics trade the profile check for
+`epic-without-open-sub-issues`, which fires when nothing open sits under the tracker —
+either it is finished and should be closed, or it was never decomposed. The check reads the
+open-issue list, so an epic whose sub-issues have all been closed will be flagged; the
+reason is named for what was measured rather than asserting the epic has no children at all.
+
+That check depends on `gh` returning the `parent` JSON field, which arrived with GitHub
+sub-issues and is recent. `gh` errors on an unknown `--json` field, so on an older `gh` the
+whole `Untriaged issues` check renders `could not check (…)` rather than degrading
+partially — if that is what you see and `gh auth status` is fine, upgrade `gh`. Known
+working on `gh` 2.96.0.
 
 **Stale worktrees** are reported per worktree with the reasons that flagged it —
 `branch-merged`, `uncommitted-changes`, `older-than-<N>d`, or `missing-directory`. Read
@@ -48,14 +69,16 @@ not as noise: nothing else is watching this tier.
 
 For any finding, suggest — but do not run without confirmation — the fix:
 `git branch -d <branch>` for stale (local) branches, `git push origin --delete <branch>`
-for stale remote sprint branches, `node
-scripts/asdlc/finish-sprint.js <sprint-id> <sha>` (which retires the worktree *before*
-deleting the branch) or `git worktree remove <path>` for stale worktrees, `gh api
-repos/{owner}/{repo} -X PATCH -f default_branch=<trunk>` for a default-branch mismatch,
-`gh issue edit <n> --add-label <label>` / `--milestone <name>` for untriaged issues,
-`/profile-issue <n>` for any issue reported as `no-execution-profile` (missing one of the
-`complexity/`, `risk/`, `execution/` routing labels), and `gh run view --log-failed` for a
-failing scheduled workflow.
+for stale remote sprint branches, `node scripts/asdlc/finish-sprint.js <sprint-id> <sha>`
+(which retires the worktree *before* deleting the branch) or `git worktree remove <path>`
+for stale worktrees, `gh api repos/{owner}/{repo} -X PATCH -f default_branch=<trunk>` for a
+default-branch mismatch, `gh issue edit <n> --add-label <label>` / `--milestone <name>` for
+untriaged issues, `/profile-issue <n>` for any issue reported as `no-execution-profile`
+(missing one of the `complexity/`, `risk/`, `execution/` routing labels),
+`gh issue edit <n> --add-label kind/epic` for a tracker still sitting on that worklist,
+`gh issue close <n>` for an epic reported `epic-without-open-sub-issues` whose work is
+genuinely finished, or decomposition into sub-issues for one that was never broken down,
+and `gh run view --log-failed` for a failing scheduled workflow.
 
 **Never `--force` a worktree removal on the user's behalf.** A worktree flagged
 `uncommitted-changes` holds the only copy of that work; surface the file list and let the

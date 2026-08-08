@@ -269,6 +269,98 @@ test('findUntriagedIssues stays quiet about truncation on a short page', async (
   }
 });
 
+test('findUntriagedIssues exempts a kind/-labelled issue from the execution-profile check', () => {
+  // #11 carries no routing labels and never can - it is a tracker. Its child is
+  // fully profiled, so the only finding the old code could produce was the one
+  // that can never be cleared.
+  const stubRunner = () => JSON.stringify([
+    { number: 11, labels: [{ name: 'kind/epic' }], milestone: { title: 'v0.3' }, parent: null },
+    {
+      number: 17,
+      labels: [{ name: 'complexity/low' }, { name: 'risk/low' }, { name: 'execution/fast' }],
+      milestone: { title: 'v0.3' },
+      parent: { number: 11 },
+    },
+  ]);
+  assert.deepEqual(findUntriagedIssues('.', { runner: stubRunner }), {
+    findings: [],
+    truncated: false,
+  });
+});
+
+test('findUntriagedIssues flags an epic with no open sub-issues', () => {
+  // The replacement completeness check. An exemption that asked nothing in
+  // return would let a tracker tracking nothing sit unnoticed.
+  const stubRunner = () => JSON.stringify([
+    { number: 11, labels: [{ name: 'kind/epic' }], milestone: { title: 'v0.3' }, parent: null },
+  ]);
+  assert.deepEqual(findUntriagedIssues('.', { runner: stubRunner }), {
+    findings: [{ number: 11, reason: 'epic-without-open-sub-issues' }],
+    truncated: false,
+  });
+});
+
+test('findUntriagedIssues exempts a non-epic kind without imposing the epic check', () => {
+  // kind/decision is childless by design - a decision ticket produces an ADR,
+  // not sub-issues. The epic check must be scoped to epics, not to the prefix.
+  const stubRunner = () => JSON.stringify([
+    { number: 33, labels: [{ name: 'kind/decision' }], milestone: { title: 'v0.3' }, parent: null },
+  ]);
+  assert.deepEqual(findUntriagedIssues('.', { runner: stubRunner }), {
+    findings: [],
+    truncated: false,
+  });
+});
+
+test('findUntriagedIssues still flags an unrecognised kind for no-execution-profile', () => {
+  // The regression guard for the allowlist. `kind/bug` / `kind/feature` /
+  // `kind/cleanup` is one of the most widespread GitHub label taxonomies, and
+  // this script ships to consumer repos that already use it - /bootstrap-asdlc
+  // scaffolds the audit into an EXISTING tracker. An open `kind/` prefix would
+  // silently drop every bug and every feature off the profiling worklist,
+  // leaving a worklist that reads as complete and is not. Only kinds that can
+  // never carry an execution class are exempt; an ordinary bug still needs one.
+  const stubRunner = () => JSON.stringify([
+    { number: 42, labels: [{ name: 'kind/bug' }], milestone: { title: 'v0.3' }, parent: null },
+  ]);
+  assert.deepEqual(findUntriagedIssues('.', { runner: stubRunner }), {
+    findings: [{ number: 42, reason: 'no-execution-profile' }],
+    truncated: false,
+  });
+});
+
+test('findUntriagedIssues still flags an exempted epic for no-milestone', () => {
+  // Pins the exemption to ONE reason. #37's own body claims an exempted issue
+  // would "escape all hygiene checks"; it does not, and this is what proves it.
+  const stubRunner = () => JSON.stringify([
+    { number: 11, labels: [{ name: 'kind/epic' }], milestone: null, parent: null },
+  ]);
+  assert.deepEqual(findUntriagedIssues('.', { runner: stubRunner }), {
+    findings: [
+      { number: 11, reason: 'no-milestone' },
+      { number: 11, reason: 'epic-without-open-sub-issues' },
+    ],
+    truncated: false,
+  });
+});
+
+test('findUntriagedIssues requests the parent field it derives sub-issues from', () => {
+  // Asserting on the ARGUMENTS, for the same reason the --limit test does: the
+  // stub returns whatever this test hands it regardless of the field list, so an
+  // output-shaped test would pass with `parent` unrequested. Against real gh the
+  // field would be absent, every parent would be undefined, and EVERY epic would
+  // report childless - a false red across the board.
+  let seen = null;
+  const stubRunner = (cmd, args) => { seen = args; return '[]'; };
+  findUntriagedIssues('.', { runner: stubRunner });
+  const at = seen.indexOf('--json');
+  assert.notEqual(at, -1, 'no --json passed at all');
+  assert.ok(
+    seen[at + 1].split(',').includes('parent'),
+    `--json fields were "${seen[at + 1]}"; without parent every epic reports childless`,
+  );
+});
+
 test('the truncation notice is appended to real findings, never instead of them', () => {
   // The spec's central claim, and the reason "throw on cap" was rejected: a
   // possible extra issue must not blank out the real ones already collected.

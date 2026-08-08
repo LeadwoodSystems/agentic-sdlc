@@ -18,7 +18,7 @@ bug in the skeleton — fix it there first.
 
 ## Where the build is
 <!-- asdlc:current-state:auto -->
-**Current state:** gh-hygiene now sees every open issue and says so when it cannot: one ISSUE_LIST_LIMIT feeds both the --limit and the cap detector, findUntriagedIssues returns {findings, truncated}, and the live audit went 30 -> 39 findings — see [handoff](docs/handoffs/v0.3-s1-hygiene-issue-limit.md)
+**Current state:** gh-hygiene exempts an explicit kind/ allowlist from the profile worklist and holds epics to an open-sub-issue check instead, and the README is reordered onto epic #11's information architecture with all 82 technical claims verified preserved — see [handoff](docs/handoffs/v0.3-s2-issue-kinds-and-readme.md)
 <!-- /asdlc:current-state:auto -->
 
 To resume, read the **latest** `docs/handoffs/` file (single source of truth). Full
@@ -38,8 +38,8 @@ Epic 1 (#11) is profiled and ready; Epics 2–6 are not.
 <!-- asdlc:facts:auto -->
 <!-- Measured by `node scripts/asdlc/facts.js` from .asdlc/facts.json. Do not hand-edit: your numbers will be overwritten, and `--check` will fail until they are. -->
 
-- asdlc unit tests: **327**
-- asdlc unit tests passing: **327**
+- asdlc unit tests: **333**
+- asdlc unit tests passing: **333**
 - node: **v24.11.1**
 <!-- /asdlc:facts:auto -->
 

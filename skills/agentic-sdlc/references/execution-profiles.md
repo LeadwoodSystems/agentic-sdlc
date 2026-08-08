@@ -159,7 +159,12 @@ Three families, one label from each: `complexity/{low,medium,high}`,
 `work-contract.schema.yaml`, so a later port is a mapping rather than a rewrite.
 
 `gh-hygiene.js` flags any open issue missing one of the three prefixes with reason
-`no-execution-profile` — that is the "needs profiling" worklist.
+`no-execution-profile` — that is the "needs profiling" worklist. Two kinds are exempt,
+by exact label: `kind/epic` and `kind/decision`. Neither is ever executed directly, so
+no execution class could ever clear the finding. An exempt epic does not simply escape —
+it trades the profile check for `epic-without-open-sub-issues`, which fires when nothing
+open sits under the tracker. Every other label, `kind/`-prefixed or not, still needs a
+profile.
 
 ## Escalation
 

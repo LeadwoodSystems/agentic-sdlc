@@ -12,6 +12,10 @@ credentials.json
 service-account*.json
 secrets/
 
+# Subagent-driven-development scratch: per-plan ledgers, task briefs, review
+# packages. Recovery state for a single session, superseded by git history.
+.superpowers/
+
 # OS / editor cruft
 .DS_Store
 Thumbs.db

@@ -1,0 +1,35 @@
+{
+  "testCommand": ["node", "--test"],
+  "mutations": [
+    {
+      "id": "KINDBLIND",
+      "why": "The exemption itself. With the prefix test always false every kind/ issue falls back onto the no-execution-profile worklist - the exact #37 defect, restored. Proves the exemption is doing the work rather than some incidental property of the stub fixtures.",
+      "file": "scripts/asdlc/gh-hygiene.js",
+      "find": "if (!isNonExecutable(issue.labels) && !hasProfileLabels(issue.labels)) {",
+      "replace": "if (!hasProfileLabels(issue.labels)) {",
+      "testArgs": ["scripts/asdlc/test/gh-hygiene.test.js"],
+      "label": "exempts a kind/-labelled issue from the execution-profile check",
+      "expectRed": "reason: 'no-execution-profile'"
+    },
+    {
+      "id": "CHILDBLIND",
+      "why": "The replacement check is the whole reason the exemption is defensible. Making it unreachable turns the exemption into the free pass #37 warned against, while every other assertion stays green - so this isolates the completeness half from the exemption half.",
+      "file": "scripts/asdlc/gh-hygiene.js",
+      "find": "if (isEpic(issue.labels) && !openParents.has(issue.number)) {",
+      "replace": "if (false) {",
+      "testArgs": ["scripts/asdlc/test/gh-hygiene.test.js"],
+      "label": "flags an epic with no open sub-issues",
+      "expectRed": "epic-without-open-sub-issues"
+    },
+    {
+      "id": "PARENTDROP",
+      "why": "The field request is invisible to every output-shaped test, because the stub runner returns its fixture regardless of what was asked for. Against real gh this is the difference between a correct audit and one that reports all six epics childless. Same class of defect as v0.3-s1's absent --limit, and caught the same way.",
+      "file": "scripts/asdlc/gh-hygiene.js",
+      "find": "'--json', 'number,labels,milestone,parent'",
+      "replace": "'--json', 'number,labels,milestone'",
+      "testArgs": ["scripts/asdlc/test/gh-hygiene.test.js"],
+      "label": "requests the parent field it derives sub-issues from",
+      "expectRed": "without parent every epic reports childless"
+    }
+  ]
+}
