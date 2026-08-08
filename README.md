@@ -17,6 +17,41 @@ The answer has two halves. Keep the context a session always reads **thin**, so 
 readable; and end every unit of work by writing down what happened, with evidence, so the
 next session starts from a record instead of an archaeology dig.
 
+## Before ASDLC / with ASDLC
+
+```text
+WITHOUT A CONTROL PLANE
+
+  Session 1   build
+                ↓
+              session ends — what happened lives only in a transcript
+                ↓
+  Session 2   rediscover → assume → continue
+                                       ↓
+  Session 3   drift
+
+WITH ASDLC
+
+  Issue         the spec
+    ↓
+  Plan          docs/superpowers/plans/<sprint>.md
+    ↓
+  Sprint        one branch, one worktree
+    ↓
+  Build         code + tests
+    ↓
+  Evidence      real command output, real counts
+    ↓
+  Handoff       docs/handoffs/<sprint>.md
+    ↓
+  Checkpoint    STATUS.md entry, staged commit, human approves
+    ↓
+  Next session resumes from the handoff
+```
+
+The left column is the step; the right column is what it leaves on disk. Nothing in the
+loop depends on a session remembering anything.
+
 ## The core mental model
 
 1. **Thin persistent context.** Your repo's `CLAUDE.md` holds only durable rules and
