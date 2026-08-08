@@ -116,7 +116,7 @@ What each step leaves behind:
 | `/sprint auth-refresh` | Required | A `sprint/vX.Y-sN` branch and a seeded plan file under `docs/superpowers/plans/` |
 | The build | Required | Code and tests, written test-first |
 | `/handoff` | Required | `docs/handoffs/<sprint>.md`, plus the one-line `docs/STATUS.md` entry it drafts |
-| `/checkpoint` | Required | The test result, the `docs/STATUS.md` entry, the rewritten `CLAUDE.md` pointer span, and a staged commit — then it **stops for your approval** |
+| `/checkpoint` | Required | The test result, the `docs/STATUS.md` entry, the rewritten `CLAUDE.md` pointer span, and the sprint's changes staged — then it **stops for your approval** |
 | `finish-sprint.js` | After the PR merges | Retires the worktree, flips the STATUS entry to merged, deletes the branch |
 
 **`/verify-issue` is deliberately not routine.** It is a multi-pass research effort, and
