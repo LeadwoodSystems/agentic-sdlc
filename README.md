@@ -75,7 +75,9 @@ loop depends on a session remembering anything.
 6. **Checkpoint** → tests pass, handoff exists, `docs/STATUS.md` updated, commit staged.
    Then stop for approval and `/clear` before the next sprint.
 
-## Installing
+## Quick start
+
+### 1. Install
 
 ```
 /plugin marketplace add /path/to/agentic-sdlc
