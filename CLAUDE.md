@@ -18,7 +18,7 @@ bug in the skeleton — fix it there first.
 
 ## Where the build is
 <!-- asdlc:current-state:auto -->
-**Current state:** gh-hygiene exempts an explicit kind/ allowlist from the profile worklist and holds epics to an open-sub-issue check instead, and the README is reordered onto epic #11's information architecture with all 82 technical claims verified preserved — see [handoff](docs/handoffs/v0.3-s2-issue-kinds-and-readme.md)
+**Current state:** README gains the Before/With ASDLC diagram (#18) and the 60-second first-sprint walkthrough (#21) at epic #11's slots 3 and 7, gated by the repo's first automated test to read README.md — see [handoff](docs/handoffs/v0.3-s3-readme-onboarding-sections.md)
 <!-- /asdlc:current-state:auto -->
 
 To resume, read the **latest** `docs/handoffs/` file (single source of truth). Full
