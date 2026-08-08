@@ -189,13 +189,28 @@ const PROFILE_LABEL_PREFIXES = ['complexity/', 'risk/', 'execution/'];
 // puts work on the worklist that no amount of profiling can ever clear, which
 // is how a worklist stops being read at all.
 //
-// Matched by prefix for the same reason PROFILE_LABEL_PREFIXES is: adding
-// `kind/decision` when #33 lands is a tracker action, not a code change.
-// Deliberately one prefix rather than a set of permitted kinds - this audit has
-// no reason to care WHICH non-executable kind an issue is, only that it is one,
-// and enumerating them here would rebuild the exact-value coupling the prefix
-// exists to avoid.
-const NON_EXECUTABLE_KIND_PREFIX = 'kind/';
+// An explicit allowlist, matched by exact value - deliberately NOT
+// `startsWith('kind/')`, and not by analogy to PROFILE_LABEL_PREFIXES above.
+// That analogy does not hold. `complexity/` names ONE axis whose buckets may
+// grow, so prefix-matching there avoids coupling to a list of buckets. `kind/`
+// names only "this issue has a type", which is not the predicate being tested.
+// The predicate here is "is never executed directly", and no string can tell
+// you that.
+//
+// The failure mode that decides it: this script ships to consumers, and
+// /bootstrap-asdlc scaffolds it into EXISTING repos - where `kind/bug`,
+// `kind/feature`, `kind/cleanup` (the Kubernetes convention) is one of the most
+// widespread label taxonomies on GitHub. An open prefix would silently remove
+// every bug and every feature in such a repo from the profiling worklist,
+// leaving a worklist that reads as complete and is not - the exact "reads as
+// clean" defect v0.3-s1 existed to eliminate. Adding a kind here is a one-line
+// change; a consumer's silent under-report is not recoverable at all. Do not
+// re-widen this to a prefix.
+//
+// `kind/decision` is on the list now, ahead of #33 landing, deliberately: a
+// decision ticket producing an ADR rather than code is the case this mechanism
+// was designed for, and #37's body names it explicitly.
+const NON_EXECUTABLE_KINDS = ['kind/epic', 'kind/decision'];
 
 // The one kind that trades its exemption for a different completeness check
 // rather than getting a free pass. See findUntriagedIssues below.
@@ -213,7 +228,7 @@ function hasProfileLabels(labels) {
 }
 
 function isNonExecutable(labels) {
-  return labelNames(labels).some((name) => name.startsWith(NON_EXECUTABLE_KIND_PREFIX));
+  return labelNames(labels).some((name) => NON_EXECUTABLE_KINDS.includes(name));
 }
 
 function isEpic(labels) {
@@ -495,7 +510,7 @@ function main() {
 module.exports = {
   ISSUE_LIST_LIMIT,
   PROFILE_LABEL_PREFIXES,
-  NON_EXECUTABLE_KIND_PREFIX,
+  NON_EXECUTABLE_KINDS,
   EPIC_KIND_LABEL,
   findStaleBranches,
   parseLsRemoteHeads,

@@ -312,6 +312,23 @@ test('findUntriagedIssues exempts a non-epic kind without imposing the epic chec
   });
 });
 
+test('findUntriagedIssues still flags an unrecognised kind for no-execution-profile', () => {
+  // The regression guard for the allowlist. `kind/bug` / `kind/feature` /
+  // `kind/cleanup` is one of the most widespread GitHub label taxonomies, and
+  // this script ships to consumer repos that already use it - /bootstrap-asdlc
+  // scaffolds the audit into an EXISTING tracker. An open `kind/` prefix would
+  // silently drop every bug and every feature off the profiling worklist,
+  // leaving a worklist that reads as complete and is not. Only kinds that can
+  // never carry an execution class are exempt; an ordinary bug still needs one.
+  const stubRunner = () => JSON.stringify([
+    { number: 42, labels: [{ name: 'kind/bug' }], milestone: { title: 'v0.3' }, parent: null },
+  ]);
+  assert.deepEqual(findUntriagedIssues('.', { runner: stubRunner }), {
+    findings: [{ number: 42, reason: 'no-execution-profile' }],
+    truncated: false,
+  });
+});
+
 test('findUntriagedIssues still flags an exempted epic for no-milestone', () => {
   // Pins the exemption to ONE reason. #37's own body claims an exempted issue
   // would "escape all hygiene checks"; it does not, and this is what proves it.
