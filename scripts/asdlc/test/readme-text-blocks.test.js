@@ -35,16 +35,61 @@ function textBlockLines(markdown) {
   return out;
 }
 
+// Counts ```text fences opened, independent of what's inside them. The
+// existence + sentinel checks below only prove *a* ```text block holds *the*
+// diagram's opening line; without this, a second, unrelated ```text fence
+// elsewhere in the file would still let both checks pass. The design (and the
+// plan) rely on the tag staying unique to the #18 diagram — this makes that a
+// gate instead of an invariant someone checked by hand once.
+function textFenceCount(markdown) {
+  const lines = markdown.split(/\r?\n/);
+  let count = 0;
+  let openLang = null;
+  for (let i = 0; i < lines.length; i += 1) {
+    const fence = lines[i].match(/^\s*```(\S*)\s*$/);
+    if (fence) {
+      if (openLang === null) {
+        openLang = fence[1] || 'plain';
+        if (openLang === 'text') count += 1;
+      } else {
+        openLang = null;
+      }
+      continue;
+    }
+  }
+  return count;
+}
+
 test('the #18 before/after diagram lives in a text fenced block', () => {
-  const found = textBlockLines(fs.readFileSync(README, 'utf8'));
+  const markdown = fs.readFileSync(README, 'utf8');
+  const found = textBlockLines(markdown);
   // Without this, the width test below passes vacuously over an empty set - an
   // inert gate that reports success, which is the failure command-prose.test.js
   // guards against the same way. Before v0.3-s3 README.md had no ```text fence
   // at all, so a width-only gate would have been green from the day it landed.
+  // This assertion must stay first: FENCEPLAIN's expectRed is this exact
+  // message, and it must fire before either check below has a chance to run.
   assert.ok(
     found.length > 0,
     'README.md holds no text-fenced block, so the width gate inspects nothing; '
     + 'the #18 before/after diagram must live in one',
+  );
+  // Existence alone proves *some* ```text block is present, not that it's the
+  // #18 diagram - a future edit could delete the diagram and add an unrelated
+  // ```text block elsewhere and still pass. The tag is reserved for the
+  // diagram by design (see textFenceCount's comment); pin that down here
+  // rather than relying on it being checked by hand.
+  assert.equal(
+    textFenceCount(markdown),
+    1,
+    'the ```text tag is reserved for the #18 before/after diagram; finding more '
+    + 'than one means something other than the diagram is using it',
+  );
+  assert.ok(
+    found.some((entry) => entry.text.includes('WITHOUT A CONTROL PLANE')),
+    'the sole ```text fence does not contain the #18 diagram\'s own text '
+    + '("WITHOUT A CONTROL PLANE") - existence and uniqueness alone don\'t prove '
+    + 'this is the diagram',
   );
 });
 

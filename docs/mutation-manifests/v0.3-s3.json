@@ -15,8 +15,8 @@
       "id": "WIDEDIAGRAM",
       "why": "The 80-column budget is #18's second acceptance criterion and the substantive half of the gate. Widening one diagram line past the budget is the defect the check exists to catch; if this stays green the filter or the column count is wrong.",
       "file": "README.md",
-      "find": "  Checkpoint    STATUS.md entry, staged commit, human approves",
-      "replace": "  Checkpoint    STATUS.md entry, staged commit, and then a full stop for human approval",
+      "find": "  Checkpoint    STATUS.md entry, staged changes, human approves",
+      "replace": "  Checkpoint    STATUS.md entry, staged changes, and then a full stop for human approval",
       "testArgs": ["scripts/asdlc/test/readme-text-blocks.test.js"],
       "label": "every line inside a text fenced block fits 80 columns",
       "expectRed": "overrun the 80-column budget"
